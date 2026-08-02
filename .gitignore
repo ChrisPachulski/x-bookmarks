@@ -1,0 +1,43 @@
+# Planning artifacts -- written to disk, never tracked.
+# These read like documentation and sail past review, which is exactly why
+# they are the leak vector. Back them up outside git, never by committing.
+.planning/
+plans/
+docs/plans/
+docs/superpowers/specs/
+**/PLAN.md
+**/*-PLAN.md
+**/*-GOAL*.md
+**/*RESEARCH*.md
+**/*DISCUSSION-LOG*.md
+**/*CONTEXT*.md
+implementation-notes.md
+SPEC.md
+REVIEW.md
+VERIFICATION.md
+
+# Credentials -- OAuth tokens and client secrets.
+.env
+.env.*
+!.env.example
+token.json
+*.token
+
+# Retrieved bookmark content -- personal data, local-only by design.
+# The store is the durable record; it lives on disk and in backups, not here.
+store/
+output/
+*.jsonl
+!tests/fixtures/*.jsonl
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# macOS
+.DS_Store

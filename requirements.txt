@@ -1,0 +1,5 @@
+tweepy>=4.8
+requests>=2.31
+trafilatura>=1.12
+youtube-transcript-api>=1.0
+pypdf>=5.0
