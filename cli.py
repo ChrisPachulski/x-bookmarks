@@ -15,7 +15,7 @@ import logging
 import sys
 from pathlib import Path
 
-from x_bookmarks import auth, fetch, resolve, store
+from x_bookmarks import auth, export, fetch, resolve, store
 
 ###############################################################################
 # Setup
@@ -67,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
                             help="walk every page rather than stopping early")
 
     subparsers.add_parser("status", help="summarize the store")
+
+    export_parser = subparsers.add_parser(
+        "export", help="rebuild bookmarks.db from the store")
+    export_parser.add_argument("--db", type=Path, default=export.DEFAULT_DB,
+                               help="database path (default: ./bookmarks.db)")
     return parser
 
 
@@ -264,10 +269,18 @@ def dispatch(args: argparse.Namespace) -> int:
         resolve_code = 0
         if result["records"]:
             resolve_code = command_resolve(root, args.all, None)
+            counts = export.export_db(root)
+            print(f"exported {counts['bookmarks']} bookmarks to {export.DEFAULT_DB}")
         return resolve_code if result["complete"] else 1
 
     if args.command == "status":
         command_status(root)
+        return 0
+
+    if args.command == "export":
+        counts = export.export_db(root, args.db)
+        print(f"exported {counts['bookmarks']} bookmarks, "
+              f"{counts['links']} links -> {args.db}")
         return 0
 
     return 1

@@ -36,7 +36,9 @@ Bookmarks need OAuth 2.0 user context (`bookmark.read`, `tweet.read`,
 rejected by the endpoint -- do not "fix" a 401 by trying one.
 
 Tokens live at `~/.config/x-bookmarks/token.json`, mode 0600. Never commit a
-token, a client secret, or retrieved bookmark content.
+token or a client secret. Retrieved content IS committed, but only as the
+derived `bookmarks.db` (decided 2026-08-02; the repo is private and must stay
+private). The JSON store itself stays untracked.
 
 ## Not the youtube-transcripts skill
 

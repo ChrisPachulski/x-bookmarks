@@ -107,7 +107,13 @@ so a crash keeps everything retrieved up to that point.
 store/
   bookmarks/<id>.json   one self-contained record per bookmark
   manifest.jsonl        append-only index, one line per bookmark
+bookmarks.db            committed SQLite copy, rebuilt by `run` and `export`
 ```
+
+`bookmarks.db` is a derived artifact: two tables (`bookmarks`, `links`) for
+querying, with each full record preserved in a JSON column. It exists so other
+machines get the content via `git pull` instead of re-fetching against the
+API's sliding window. Regenerate it; never hand-edit it.
 
 Reading it downstream:
 

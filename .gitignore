@@ -23,8 +23,9 @@ VERIFICATION.md
 token.json
 *.token
 
-# Retrieved bookmark content -- personal data, local-only by design.
-# The store is the durable record; it lives on disk and in backups, not here.
+# The JSON store stays untracked; bookmarks.db is the committed, compact
+# derived copy (repo is PRIVATE -- re-check `git remote -v` before ever
+# making it public, the db holds full retrieved content).
 store/
 output/
 *.jsonl
