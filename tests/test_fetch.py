@@ -217,3 +217,36 @@ def test_post_lookup_failure_is_not_fatal() -> None:
             raise RuntimeError("rate limited")
 
     assert fetch.fetch_posts(Client(), ["1"]) == {}
+
+
+def test_post_lookup_asks_for_long_form_fields() -> None:
+    seen: dict = {}
+
+    class Client:
+        def get_tweets(self, ids, **kwargs):
+            seen.update(kwargs)
+            return {"data": []}
+
+    fetch.fetch_posts(Client(), ["1"])
+
+    assert {"note_tweet", "article"} <= set(seen["tweet_fields"])
+
+
+def test_post_lookup_returns_the_article_body_for_an_article_post() -> None:
+    class Client:
+        def get_tweets(self, ids, **kwargs):
+            return {"data": [{"id": "1", "author_id": "1", "text": "https://t.co/abc",
+                              "article": {"title": "T", "plain_text": "Body."}}],
+                    "includes": {"users": [{"id": "1", "username": "u"}]}}
+
+    assert fetch.fetch_posts(Client(), ["1"])["1"]["text"] == "T\n\nBody."
+
+
+def test_post_lookup_returns_the_full_text_of_a_long_post() -> None:
+    class Client:
+        def get_tweets(self, ids, **kwargs):
+            return {"data": [{"id": "1", "author_id": "1", "text": "cut off at",
+                              "note_tweet": {"text": "cut off at the end, and more"}}],
+                    "includes": {"users": [{"id": "1", "username": "u"}]}}
+
+    assert fetch.fetch_posts(Client(), ["1"])["1"]["text"] == "cut off at the end, and more"

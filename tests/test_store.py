@@ -286,3 +286,33 @@ def test_a_deliberate_reresolution_replaces_verified_content(root: Path) -> None
     store.put_record(root, make_record("1", links=[refreshed]))
 
     assert store.read_record(root, "1")["links"][0]["text"] == "refreshed body"
+
+
+###############################################################################
+# Repair -- bare-link X-post links
+###############################################################################
+
+
+def test_reset_bare_x_post_links_knocks_only_those_back_to_pending(tmp_path: Path) -> None:
+    bare = make_link("https://x.com/a/status/1", kind="x_post",
+                     status="verified", text="https://t.co/abc")
+    real = make_link("https://x.com/a/status/2", kind="x_post",
+                     status="verified", text="an actual post")
+    store.save_records(tmp_path, [make_record(
+        "1", links=[bare, real], resolve_status="verified")])
+
+    assert store.reset_bare_x_post_links(tmp_path) == 1
+
+    record = store.read_record(tmp_path, "1")
+    assert record["links"][0]["status"] == "pending"
+    assert record["links"][1]["status"] == "verified"
+    assert record["resolve_status"] == "pending"
+
+
+def test_reset_bare_x_post_links_covers_inferred_ones_too(tmp_path: Path) -> None:
+    inferred = make_link("https://x.com/a/status/1", kind="x_post",
+                         status="inferred", text="https://t.co/abc")
+    store.save_records(tmp_path, [make_record("1", links=[inferred])])
+
+    assert store.reset_bare_x_post_links(tmp_path) == 1
+    assert store.read_record(tmp_path, "1")["links"][0]["status"] == "pending"

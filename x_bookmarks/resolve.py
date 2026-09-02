@@ -18,6 +18,7 @@ from .records import (
     BookmarkRecord,
     LinkRecord,
     classify_link,
+    is_bare_link,
     is_x_article,
     record_status,
     status_id_from_x_url,
@@ -310,10 +311,14 @@ def resolve_x_post(
         return resolved  # type: ignore[return-value]
 
     author = post.get("author_username") or ""
+    # A post whose text is only a URL is a pointer -- an Article whose body
+    # was not returned. Keep the URL, but partial is inferred, never verified.
+    bare = is_bare_link(post["text"])
     resolved.update(
-        status="verified",
+        status="inferred" if bare else "verified",
         text=post["text"],
-        reason="",
+        reason=("post text is only a link; the body behind it was not "
+                "returned by the API") if bare else "",
         title=resolved.get("title") or (f"@{author}" if author else ""),
     )
     return resolved  # type: ignore[return-value]
@@ -398,7 +403,10 @@ def post_lookup_from_records(
     lookup: dict[str, dict[str, str]] = {}
     for record in records:
         for reference in (record.get("referenced") or []):
-            if reference.get("id") and reference.get("text"):
+            text = reference.get("text") or ""
+            # A bare link is an Article's post text, not its body. Seeding it
+            # would stop the lookup that can return the body.
+            if reference.get("id") and text and not is_bare_link(text):
                 lookup[reference["id"]] = {
                     "text": reference["text"],
                     "author_username": reference.get("author_username", ""),

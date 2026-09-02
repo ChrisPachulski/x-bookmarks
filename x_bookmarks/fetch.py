@@ -13,7 +13,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Iterator, TypedDict
 
-from .records import BookmarkRecord, build_page
+from .records import BookmarkRecord, article_text, build_page, post_text
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +25,9 @@ TWEET_FIELDS = [
     # this field the whole piece -- up to 100,000 characters -- is invisible.
     # It rides along on the bookmark, costing no extra call.
     "article",
+    # Posts over 280 characters arrive truncated in `text`; the whole post
+    # is under `note_tweet`. Without it every long post is stored cut off.
+    "note_tweet",
 ]
 USER_FIELDS = ["id", "username", "name"]
 MEDIA_FIELDS = ["media_key", "type", "url", "preview_image_url", "duration_ms"]
@@ -130,7 +133,8 @@ def fetch_posts(client: Any, ids: list[str]) -> dict[str, dict[str, str]]:
         batch = unique[start:start + MAX_IDS_PER_LOOKUP]
         try:
             response = client.get_tweets(
-                batch, tweet_fields=["id", "text", "author_id"],
+                batch, tweet_fields=["id", "text", "author_id",
+                                     "note_tweet", "article"],
                 user_fields=USER_FIELDS, expansions=["author_id"],
             ) or {}
         except Exception as exc:
@@ -145,7 +149,7 @@ def fetch_posts(client: Any, ids: list[str]) -> dict[str, dict[str, str]]:
         for post in (response.get("data") or []):
             author = users.get(str(post.get("author_id") or ""), {})
             out[str(post.get("id"))] = {
-                "text": str(post.get("text") or ""),
+                "text": article_text(post) or post_text(post),
                 "author_username": str(author.get("username") or ""),
             }
 
@@ -160,7 +164,7 @@ def fetch_posts(client: Any, ids: list[str]) -> dict[str, dict[str, str]]:
 
 class FetchResult(TypedDict):
     records: list[BookmarkRecord]
-    complete: bool          # False when a page failed or the page cap cut the walk short
+    complete: bool  # False when a page failed or the page cap cut the walk short
 
 
 def fetch_bookmarks(

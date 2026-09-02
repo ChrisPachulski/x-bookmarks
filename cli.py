@@ -57,8 +57,8 @@ def build_parser() -> argparse.ArgumentParser:
                                 help="resolve at most N records this run")
     resolve_parser.add_argument(
         "--repair", action="store_true",
-        help="reset X-post links resolved by the old scraping path, then "
-             "re-resolve them through the API")
+        help="reset X-post links holding only a URL (quoted Articles from "
+             "earlier builds), then re-resolve them through the API")
 
     run_parser = subparsers.add_parser("run", help="fetch then resolve")
     run_parser.add_argument("--max-pages", type=int, default=None)
@@ -72,6 +72,16 @@ def build_parser() -> argparse.ArgumentParser:
         "export", help="rebuild bookmarks.db from the store")
     export_parser.add_argument("--db", type=Path, default=export.DEFAULT_DB,
                                help="database path (default: ./bookmarks.db)")
+
+    import_parser = subparsers.add_parser(
+        "import", help="merge a pulled bookmarks.db into the store")
+    import_parser.add_argument("--db", type=Path, default=export.DEFAULT_DB,
+                               help="database path (default: ./bookmarks.db)")
+
+    sync_parser = subparsers.add_parser(
+        "sync", help="import a pulled bookmarks.db, then re-export it")
+    sync_parser.add_argument("--db", type=Path, default=export.DEFAULT_DB,
+                             help="database path (default: ./bookmarks.db)")
     return parser
 
 
@@ -136,30 +146,6 @@ def command_fetch(root: Path, max_pages: int | None, full: bool) -> fetch.FetchR
               "early. Run 'python cli.py fetch --full' to recover the gap.",
               file=sys.stderr)
     return result
-
-
-def repair_scraped_x_posts(root: Path) -> int:
-    """Reset X-post links that an earlier build resolved by scraping.
-
-    Those were stored `verified` while holding a few hundred characters of
-    reply metadata rather than the post. Because the merge logic protects
-    verified content, they cannot be corrected by a normal re-run -- they have
-    to be knocked back to pending explicitly. One-time, opt-in via --repair.
-    """
-    repaired = 0
-    for record in list(store.iter_records(root)):
-        links = record.get("links") or []
-        touched = False
-        for link in links:
-            if link.get("kind") == "x_post" and link.get("status") == "verified":
-                link.update(status="pending", text="", reason="")
-                touched = True
-        if touched:
-            record["resolve_status"] = "pending"
-            store.write_json_atomic(
-                store.record_path(root, record["id"]), record)
-            repaired += 1
-    return repaired
 
 
 def command_resolve(root: Path, resolve_all: bool, limit: int | None) -> int:
@@ -260,17 +246,25 @@ def dispatch(args: argparse.Namespace) -> int:
 
     if args.command == "resolve":
         if args.repair:
-            count = repair_scraped_x_posts(root)
-            print(f"reset {count} records holding scraped X-post text")
+            count = store.reset_bare_x_post_links(root)
+            print(f"reset {count} records holding bare-link X-post text")
         return command_resolve(root, args.all, args.limit)
 
     if args.command == "run":
+        # Import first. A pulled database can hold bookmarks this machine has
+        # never fetched, and the export below rebuilds from the store alone --
+        # so skipping this would quietly revert the other machine's rows.
+        if export.DEFAULT_DB.exists():
+            pulled = export.import_db(root, export.DEFAULT_DB)
+            if pulled["added"]:
+                print(f"imported {pulled['added']} bookmarks new to this "
+                      f"machine from {export.DEFAULT_DB}")
         result = command_fetch(root, args.max_pages, args.full)
         resolve_code = 0
         if result["records"]:
             resolve_code = command_resolve(root, args.all, None)
-            counts = export.export_db(root)
-            print(f"exported {counts['bookmarks']} bookmarks to {export.DEFAULT_DB}")
+        counts = export.export_db(root)
+        print(f"exported {counts['bookmarks']} bookmarks to {export.DEFAULT_DB}")
         return resolve_code if result["complete"] else 1
 
     if args.command == "status":
@@ -282,6 +276,21 @@ def dispatch(args: argparse.Namespace) -> int:
         print(f"exported {counts['bookmarks']} bookmarks, "
               f"{counts['links']} links -> {args.db}")
         return 0
+
+    if args.command == "import":
+        counts = export.import_db(root, args.db)
+        print(f"imported {counts['total']} bookmarks from {args.db}: "
+              f"{counts['added']} new, {counts['updated']} merged, "
+              f"{counts['skipped']} skipped")
+        return 1 if counts["skipped"] else 0
+
+    if args.command == "sync":
+        pulled = export.import_db(root, args.db)
+        written = export.export_db(root, args.db)
+        print(f"imported {pulled['total']} ({pulled['added']} new, "
+              f"{pulled['updated']} merged, {pulled['skipped']} skipped), "
+              f"exported {written['bookmarks']} bookmarks -> {args.db}")
+        return 1 if pulled["skipped"] else 0
 
     return 1
 

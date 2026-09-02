@@ -203,7 +203,7 @@ Each record is one `BookmarkRecord`: `id`, `text`, `created_at`, `lang`,
   is a link's stable identity: resolution rewrites `expanded_url` to the
   post-redirect destination while the API keeps returning the original, so
   only `short_url` safely matches a stored link to a re-fetched one
-  (`records.py:177`). `text` holds the resolved content -- article body or
+  (`records.py:281`). `text` holds the resolved content -- article body or
   video transcript, depending on `kind` -- and `reason` says why whenever
   `status` is not `verified`.
 - `article` -- when the bookmarked post is an X Article (long-form), its full
@@ -212,7 +212,12 @@ Each record is one `BookmarkRecord`: `id`, `text`, `created_at`, `lang`,
   fetch at no extra API cost (`records.py:51`, `fetch.py:21`).
 - `referenced[]` -- quoted, replied-to, or retweeted posts, each carrying its
   `text` and `author_username` where the API supplied them in the same
-  response (`records.py:64`).
+  response (`records.py:64`). When the quoted post is itself an Article,
+  `text` is the Article's title and body, not the bare t.co the post carries.
+- `text` on the record, and on every `referenced[]` entry, is the whole post.
+  The API truncates `text` at 280 characters and puts the full post under
+  `note_tweet`; the fetch asks for both and stores the long one
+  (`records.py`, `post_text`).
 
 Reading it downstream:
 

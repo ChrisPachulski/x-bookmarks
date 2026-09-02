@@ -180,6 +180,11 @@ def test_partial_success_is_inferred_not_verified() -> None:
     assert resolve.record_status(links) == "inferred"
 
 
+def test_inferred_only_is_inferred_not_unresolved() -> None:
+    links = [make_link(status="inferred", text="https://t.co/abc")]
+    assert resolve.record_status(links) == "inferred"
+
+
 def test_all_blocked_is_blocked() -> None:
     links = [make_link(status="blocked"), make_link(status="blocked")]
     assert resolve.record_status(links) == "blocked"
@@ -289,6 +294,17 @@ def test_x_post_absent_from_lookup_is_unresolved_with_a_reason(monkeypatch) -> N
     assert resolved["text"] == ""
 
 
+def test_x_post_whose_text_is_only_a_link_is_inferred_not_verified(monkeypatch) -> None:
+    """An Article's post text is just its t.co. Holding the URL is partial
+    success -- calling it verified reports content that was never stored."""
+    monkeypatch.setattr(resolve, "expand_url", lambda url: (url, ""))
+    lookup = {"1750000000000000001": {"text": "https://t.co/LSAMpgaool",
+                                      "author_username": "someone"}}
+    resolved = resolve.resolve_link(make_link(X_URL), post_lookup=lookup)
+    assert resolved["status"] == "inferred"
+    assert resolved["reason"]
+
+
 def test_x_link_without_a_post_id_is_unresolved(monkeypatch) -> None:
     monkeypatch.setattr(resolve, "expand_url", lambda url: (url, ""))
     resolved = resolve.resolve_link(make_link("https://x.com/someuser"))
@@ -344,6 +360,14 @@ def test_lookup_is_seeded_from_quoted_post_text() -> None:
     lookup = resolve.post_lookup_from_records(records)
     assert lookup["111"]["text"] == "quoted body"
     assert lookup["111"]["author_username"] == "quoted_author"
+
+
+def test_lookup_is_not_seeded_from_a_bare_link_reference() -> None:
+    """A quoted Article's post text is only its t.co. Seeding from it would
+    stop the lookup that can actually return the body."""
+    record = {"id": "1", "links": [], "referenced": [
+        {"type": "quoted", "id": "8", "text": "https://t.co/abc", "author_username": "a"}]}
+    assert resolve.post_lookup_from_records([record]) == {}
 
 
 def test_reference_without_text_is_not_seeded() -> None:

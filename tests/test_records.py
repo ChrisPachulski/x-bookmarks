@@ -186,3 +186,54 @@ def test_duplicate_urls_are_deduplicated() -> None:
 def test_index_includes_tolerates_missing_includes() -> None:
     lookups = records.index_includes(None)
     assert lookups == {"users": {}, "media": {}, "tweets": {}}
+
+
+###############################################################################
+# Long-form text -- note_tweet and quoted Articles
+###############################################################################
+
+LONG_POST = {
+    "id": "7",
+    "text": "first 280 characters, cut off at the",
+    "note_tweet": {"text": "first 280 characters, cut off at the end, then the rest"},
+}
+ARTICLE_POST = {
+    "id": "8",
+    "text": "https://t.co/abc123",
+    "article": {"title": "Harness Engineering", "plain_text": "The whole piece.",
+                "preview_text": "The whole"},
+}
+
+
+def test_long_post_text_comes_from_note_tweet() -> None:
+    built = records.build_page([LONG_POST], None, RETRIEVED_AT)
+    assert built[0]["text"] == "first 280 characters, cut off at the end, then the rest"
+
+
+def test_quoted_long_post_text_comes_from_note_tweet() -> None:
+    tweet = {"id": "9", "referenced_tweets": [{"type": "quoted", "id": "7"}]}
+    built = records.build_page([tweet], {"tweets": [LONG_POST]}, RETRIEVED_AT)
+    assert built[0]["referenced"][0]["text"] == (
+        "first 280 characters, cut off at the end, then the rest")
+
+
+def test_quoted_article_body_is_carried_into_referenced_text() -> None:
+    """A quoted Article's post text is a bare t.co; the body is on the
+    included tweet in the same response and must not be thrown away."""
+    tweet = {"id": "9", "referenced_tweets": [{"type": "quoted", "id": "8"}]}
+    built = records.build_page([tweet], {"tweets": [ARTICLE_POST]}, RETRIEVED_AT)
+    text = built[0]["referenced"][0]["text"]
+    assert text.startswith("Harness Engineering")
+    assert "The whole piece." in text
+    assert "https://t.co/abc123" not in text
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("https://t.co/LSAMpgaool", True),
+    ("  https://t.co/LSAMpgaool\n", True),
+    ("https://x.com/i/article/2088576943155290112", True),
+    ("Read this https://t.co/LSAMpgaool", False),
+    ("", False),
+])
+def test_is_bare_link(text: str, expected: bool) -> None:
+    assert records.is_bare_link(text) is expected

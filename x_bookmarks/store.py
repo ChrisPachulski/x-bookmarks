@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterator
 
-from .records import BookmarkRecord, link_identity, record_status
+from .records import BookmarkRecord, is_bare_link, link_identity, record_status
 
 log = logging.getLogger(__name__)
 
@@ -173,6 +173,31 @@ def put_record(root: Path, record: BookmarkRecord) -> bool:
     write_json_atomic(record_path(root, bookmark_id), payload)
     return existing is None
 
+
+
+def reset_bare_x_post_links(root: Path) -> int:
+    """Knock X-post links whose stored text is only a URL back to pending.
+
+    Earlier builds marked a quoted Article verified while holding nothing but
+    its t.co. The merge logic protects verified content, so a normal re-run
+    cannot correct them -- they have to be reset explicitly, and only these:
+    a link holding real post text is left alone. Any settled status counts,
+    since a bare link is never content. Returns records touched.
+    """
+    repaired = 0
+    for record in list(iter_records(root)):
+        touched = False
+        for link in (record.get("links") or []):
+            if (link.get("kind") == "x_post"
+                    and link.get("status") != "pending"
+                    and is_bare_link(link.get("text") or "")):
+                link.update(status="pending", text="", reason="")
+                touched = True
+        if touched:
+            record["resolve_status"] = "pending"
+            write_json_atomic(record_path(root, record["id"]), record)
+            repaired += 1
+    return repaired
 
 def append_manifest(root: Path, record: BookmarkRecord) -> None:
     """Append one index line. Cheap to grep, cheap to stream."""

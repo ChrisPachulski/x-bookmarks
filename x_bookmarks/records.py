@@ -24,14 +24,14 @@ ResolveStatus = Literal["verified", "unresolved", "blocked", "inferred", "pendin
 class LinkRecord(TypedDict):
     """One outbound link found in a bookmark, before or after resolution."""
 
-    short_url: str          # the t.co form as it appears in the tweet
-    expanded_url: str       # the destination X itself reports
+    short_url: str     # the t.co form as it appears in the tweet
+    expanded_url: str  # the destination X itself reports
     display_url: str
     kind: Literal["article", "video", "image", "x_post", "unknown"]
     status: ResolveStatus
-    reason: str             # why, when status is not "verified"
+    reason: str        # why, when status is not "verified"
     title: str
-    text: str               # resolved article body or video transcript
+    text: str          # resolved article body or video transcript
 
 
 class AuthorRecord(TypedDict):
@@ -42,7 +42,7 @@ class AuthorRecord(TypedDict):
 
 class MediaRecord(TypedDict):
     media_key: str
-    kind: str               # photo | video | animated_gif
+    kind: str  # photo | video | animated_gif
     url: str
     preview_image_url: str
     duration_ms: int | None
@@ -69,7 +69,7 @@ class ReferencedRecord(TypedDict):
     something already on hand.
     """
 
-    type: str               # quoted | replied_to | retweeted
+    type: str  # quoted | replied_to | retweeted
     id: str
     text: str
     author_username: str
@@ -90,7 +90,7 @@ class BookmarkRecord(TypedDict):
     article: ArticleRecord
     resolve_status: ResolveStatus
     retrieved_at: str
-    source: str             # which pipeline produced this record
+    source: str  # which pipeline produced this record
 
 
 ###############################################################################
@@ -131,6 +131,33 @@ def is_x_article(url: str) -> bool:
     the body, so these are blocked rather than merely unresolved.
     """
     return "/i/article/" in (url or "").lower()
+
+
+def is_bare_link(text: str) -> bool:
+    """True when a post's text is nothing but one URL.
+
+    That is what an Article's post looks like -- the body lives in the
+    `article` field and the post itself is only its t.co. Holding the URL is
+    a pointer, not content, and must never count as verified.
+    """
+    return bool(re.fullmatch(r"https?://\S+", (text or "").strip()))
+
+
+def post_text(tweet: dict[str, Any]) -> str:
+    """The whole post. `text` is cut at 280 characters for long posts; the
+    full thing is under `note_tweet`, which is absent for short ones."""
+    note = tweet.get("note_tweet") or {}
+    return str(note.get("text") or tweet.get("text") or "")
+
+
+def article_text(tweet: dict[str, Any]) -> str:
+    """Title and body of an Article post, empty when the post is not one."""
+    article = tweet.get("article") or {}
+    body = str(article.get("plain_text") or "")
+    if not body:
+        return ""
+    title = str(article.get("title") or "").strip()
+    return f"{title}\n\n{body}" if title else body
 
 
 def url_host(url: str) -> str:
@@ -200,7 +227,7 @@ def record_status(links: list[dict[str, Any]]) -> str:
         return "pending"
     if statuses <= {"blocked"}:
         return "blocked"
-    if "verified" in statuses:
+    if "verified" in statuses or "inferred" in statuses:
         return "inferred"
     return "unresolved"
 
@@ -305,7 +332,9 @@ def build_referenced(
         out.append(ReferencedRecord(
             type=str(reference.get("type") or ""),
             id=reference_id,
-            text=str(source.get("text") or ""),
+            # An Article's own text is just its t.co; the body is on the
+            # included tweet in this same response, so carry that instead.
+            text=article_text(source) or post_text(source),
             author_username=str(author.get("username") or ""),
         ))
     return out
@@ -335,7 +364,7 @@ def build_record(
     referenced = build_referenced(tweet, lookups)
     return BookmarkRecord(
         id=str(tweet.get("id") or ""),
-        text=str(tweet.get("text") or ""),
+        text=post_text(tweet),
         created_at=str(tweet.get("created_at") or ""),
         lang=str(tweet.get("lang") or ""),
         author=build_author(tweet, lookups.get("users", {})),
