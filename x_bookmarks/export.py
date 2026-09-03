@@ -93,7 +93,7 @@ def export_db(root: Path, db_path: Path = DEFAULT_DB) -> dict[str, int]:
                 "INSERT INTO links VALUES (?,?,?,?,?,?)",
                 (
                     record["id"],
-                    link.get("url"),
+                    link.get("expanded_url") or link.get("short_url"),
                     link.get("kind"),
                     link.get("status"),
                     link.get("reason"),

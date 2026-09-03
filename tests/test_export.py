@@ -170,3 +170,21 @@ def test_import_skips_an_unparseable_row_instead_of_failing(tmp_path):
 def test_import_raises_when_the_database_is_absent(tmp_path):
     with pytest.raises(FileNotFoundError):
         import_db(tmp_path / "store", tmp_path / "missing.db")
+
+
+def test_links_table_carries_the_link_url(tmp_path):
+    """Regression: links.url was written from a key the record never has,
+    so every row exported NULL and consumers could not find a link by URL."""
+    from x_bookmarks import store, export
+    root = store.ensure_store(tmp_path / "store")
+    record = {"id": "1", "text": "t", "created_at": "", "lang": "en",
+              "author": {"id": "a", "username": "u", "name": "n"}, "media": [], "metrics": {},
+              "referenced": [], "resolve_status": "pending", "retrieved_at": "", "source": "x",
+              "links": [{"short_url": "https://t.co/x", "expanded_url": "https://example.com/a",
+                         "display_url": "", "kind": "article", "status": "pending", "reason": "",
+                         "title": "", "text": ""}]}
+    store.save_records(root, [record])
+    db = tmp_path / "b.db"
+    export.export_db(root, db)
+    import sqlite3
+    assert sqlite3.connect(db).execute("SELECT url FROM links").fetchone() == ("https://example.com/a",)
