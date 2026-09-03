@@ -54,6 +54,34 @@ Three stages, one command: `fetch` pulls bookmark pages from the API,
 - **Raw text, never summaries** -- a consumer can always summarize, but can
   never un-summarize.
 
+## Frontier sources
+
+The same pipeline also retrieves sources that are not bookmarks: the
+places where harness and agent engineering is actually published. They
+are listed in `feeds.json` and land in the same store, marked
+`source: feed:<name>`, so `resolve` and `export` treat them like any other
+record.
+
+| kind | what it is | example |
+|---|---|---|
+| `rss` | an RSS or Atom URL (GitHub release feeds are Atom) | `anthropics/claude-code/releases.atom` |
+| `index` | a listing page whose links under `prefix` are the items, for sites with no feed | `anthropic.com/engineering` |
+| `page` | one living page, stored again whenever its text changes | the Claude API release notes |
+| `arxiv` | an arXiv API query, newest first; the link is the PDF so the full paper is captured | `all:"agent harness"` |
+| `last30days` | a topic run through the last30days engine; every item it returns is a record | `AI agent harness engineering` |
+
+```bash
+.venv/bin/python cli.py feeds                       # every source
+.venv/bin/python cli.py feeds --skip-kind last30days  # feeds only, ~15 s
+.venv/bin/python cli.py feeds --only arxiv-agent-harness
+.venv/bin/python cli.py resolve && .venv/bin/python cli.py export
+```
+
+`defaults` in `feeds.json` window each source to the last 45 days and 50
+items (archive feeds serve their whole history); items with no date, such
+as index-page links, are always kept. Retrieval stops there: ranking and
+the weekly brief are the `frontier-scan` skill's job, reading `bookmarks.db`.
+
 ## Quick start
 
 ```bash

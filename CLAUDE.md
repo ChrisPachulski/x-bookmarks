@@ -9,6 +9,15 @@ Do NOT add here: classification, tagging, summarization, scoring, dashboards,
 digests, or tool-discovery analysis. Those are separate skills that read the
 store. Scope creep into any of them is a defect, not a feature.
 
+## Frontier sources are in scope
+
+`feeds.json` and `x_bookmarks/feeds.py` retrieve non-bookmark sources (feeds,
+index pages, arXiv, last30days runs) into the same store as `feed:<name>`
+records. That is retrieval and belongs here. What is read from them, ranked,
+or written up is not: the `frontier-scan` skill in claude-sync reads
+`bookmarks.db` for that. The recency window in `feeds.json` is a retrieval
+cap on archive-sized feeds, not a judgment about relevance.
+
 ## Hard invariants
 
 - **The store is append-only.** The API returns only the 800 most recent

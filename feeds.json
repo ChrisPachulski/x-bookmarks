@@ -1,0 +1,164 @@
+{
+  "_comment": "Frontier sources retrieved by `cli.py feeds` into the same store as X bookmarks. Kinds: rss (RSS/Atom URL), index (a page whose links under `prefix` are the items), page (one page whose text is stored again whenever it changes), arxiv (an arXiv API query), last30days (a topic run through the last30days engine). `tier` and `name` are labels for the consumer; retrieval does not rank. `defaults` apply to every source unless the source overrides them; items with no date (index pages) are always kept.",
+  "defaults": {
+    "since_days": 45,
+    "max_items": 50
+  },
+  "sources": [
+    {
+      "name": "anthropic-engineering",
+      "kind": "index",
+      "tier": 1,
+      "url": "https://www.anthropic.com/engineering",
+      "prefix": "/engineering/"
+    },
+    {
+      "name": "anthropic-news",
+      "kind": "index",
+      "tier": 1,
+      "url": "https://www.anthropic.com/news",
+      "prefix": "/news/"
+    },
+    {
+      "name": "claude-blog-agents",
+      "kind": "index",
+      "tier": 1,
+      "url": "https://claude.com/blog-category/agents",
+      "prefix": "/blog/"
+    },
+    {
+      "name": "claude-api-release-notes",
+      "kind": "page",
+      "tier": 1,
+      "url": "https://platform.claude.com/docs/en/release-notes/api.md"
+    },
+    {
+      "name": "claude-code-changelog",
+      "kind": "rss",
+      "tier": 1,
+      "url": "https://github.com/anthropics/claude-code/releases.atom"
+    },
+    {
+      "name": "claude-code-docs-changelog",
+      "kind": "page",
+      "tier": 1,
+      "url": "https://code.claude.com/docs/en/changelog.md"
+    },
+    {
+      "name": "openai-news",
+      "kind": "rss",
+      "tier": 1,
+      "url": "https://openai.com/news/rss.xml"
+    },
+    {
+      "name": "arxiv-agent-harness",
+      "kind": "arxiv",
+      "tier": 2,
+      "query": "all:\"agent harness\" OR all:\"harness engineering\"",
+      "max_results": 25
+    },
+    {
+      "name": "arxiv-context-engineering",
+      "kind": "arxiv",
+      "tier": 2,
+      "query": "all:\"context engineering\" AND (all:agent OR all:LLM)",
+      "max_results": 25
+    },
+    {
+      "name": "arxiv-coding-agents",
+      "kind": "arxiv",
+      "tier": 2,
+      "query": "all:\"coding agent\" OR all:\"coding agents\" OR all:\"agentic coding\"",
+      "max_results": 25
+    },
+    {
+      "name": "arxiv-llm-judge-evals",
+      "kind": "arxiv",
+      "tier": 2,
+      "query": "all:\"LLM-as-a-judge\" OR all:\"agent evaluation\" OR all:\"agent benchmark\"",
+      "max_results": 25
+    },
+    {
+      "name": "codex-releases",
+      "kind": "rss",
+      "tier": 3,
+      "url": "https://github.com/openai/codex/releases.atom"
+    },
+    {
+      "name": "superpowers-releases",
+      "kind": "rss",
+      "tier": 3,
+      "url": "https://github.com/obra/superpowers/releases.atom"
+    },
+    {
+      "name": "claude-plugins-official-commits",
+      "kind": "rss",
+      "tier": 3,
+      "url": "https://github.com/anthropics/claude-plugins-official/commits/main.atom"
+    },
+    {
+      "name": "last30days-skill-releases",
+      "kind": "rss",
+      "tier": 3,
+      "url": "https://github.com/mvanhorn/last30days-skill/releases.atom"
+    },
+    {
+      "name": "simon-willison",
+      "kind": "rss",
+      "tier": 4,
+      "url": "https://simonwillison.net/atom/everything/"
+    },
+    {
+      "name": "latent-space",
+      "kind": "rss",
+      "tier": 4,
+      "url": "https://www.latent.space/feed"
+    },
+    {
+      "name": "hamel-husain",
+      "kind": "rss",
+      "tier": 4,
+      "url": "https://hamel.dev/index.xml"
+    },
+    {
+      "name": "shreya-shankar",
+      "kind": "rss",
+      "tier": 4,
+      "url": "https://www.sh-reya.com/rss.xml"
+    },
+    {
+      "name": "eugene-yan",
+      "kind": "rss",
+      "tier": 4,
+      "url": "https://eugeneyan.com/rss/"
+    },
+    {
+      "name": "l30-agent-harness",
+      "kind": "last30days",
+      "tier": 5,
+      "topic": "AI agent harness engineering",
+      "max_items": 30
+    },
+    {
+      "name": "l30-context-engineering",
+      "kind": "last30days",
+      "tier": 5,
+      "topic": "context engineering for LLM agents",
+      "max_items": 30
+    },
+    {
+      "name": "l30-claude-code",
+      "kind": "last30days",
+      "tier": 5,
+      "topic": "Claude Code hooks skills subagents",
+      "max_items": 30
+    },
+    {
+      "name": "l30-agent-evals",
+      "kind": "last30days",
+      "tier": 5,
+      "topic": "LLM agent evals and LLM-as-judge",
+      "max_items": 30
+    }
+  ]
+}

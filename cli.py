@@ -5,6 +5,7 @@
     python cli.py resolve              resolve links already in the store
     python cli.py run                  fetch then resolve
     python cli.py status               what is on disk right now
+    python cli.py feeds                retrieve frontier sources (feeds.json)
 
 Every command is safe to re-run. The store is append-only by design.
 """
@@ -15,7 +16,7 @@ import logging
 import sys
 from pathlib import Path
 
-from x_bookmarks import auth, export, fetch, resolve, store
+from x_bookmarks import auth, export, feeds, fetch, resolve, store
 
 ###############################################################################
 # Setup
@@ -68,6 +69,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("status", help="summarize the store")
 
+    feeds_parser = subparsers.add_parser(
+        "feeds", help="retrieve frontier sources listed in feeds.json")
+    feeds_parser.add_argument("--sources", type=Path, default=feeds.DEFAULT_SOURCES,
+                              help="source list (default: ./feeds.json)")
+    feeds_parser.add_argument("--only", action="append", default=[],
+                              help="run only the named source(s); repeatable")
+    feeds_parser.add_argument("--skip-kind", action="append", default=[],
+                              help="skip every source of this kind (e.g. last30days)")
+    feeds_parser.add_argument("--engine", type=Path, default=None,
+                              help="last30days.py path (default: claude-sync skill)")
+    feeds_parser.add_argument("--engine-python", default="python3",
+                              help="interpreter for the last30days engine")
+
     export_parser = subparsers.add_parser(
         "export", help="rebuild bookmarks.db from the store")
     export_parser.add_argument("--db", type=Path, default=export.DEFAULT_DB,
@@ -88,6 +102,41 @@ def build_parser() -> argparse.ArgumentParser:
 ###############################################################################
 # Commands
 ###############################################################################
+
+
+def command_feeds(root: Path, sources_path: Path, only: list[str],
+                  skip_kind: list[str], engine: Path | None,
+                  engine_python: str) -> int:
+    """Retrieve frontier sources into the store. Resolve and export are the
+    same commands as for bookmarks; this only lands the pointers and any
+    text the source carried."""
+    if not sources_path.exists():
+        print(f"no source list at {sources_path}", file=sys.stderr)
+        return 1
+    sources = feeds.load_sources(sources_path)
+    if only:
+        sources = [s for s in sources if s["name"] in set(only)]
+    if skip_kind:
+        sources = [s for s in sources if s["kind"] not in set(skip_kind)]
+    if not sources:
+        print("no sources selected")
+        return 0
+    known = store.known_ids(root)
+    totals = {"added": 0, "updated": 0, "total": 0}
+
+    def persist(records: list) -> None:
+        counts = store.save_records(root, records)
+        for key in totals:
+            totals[key] += counts[key]
+
+    counts = feeds.fetch_sources(root, sources, known, engine=engine,
+                                 python=engine_python, on_records=persist)
+    for name, c in counts.items():
+        flag = " FAILED" if c.get("failed") else (" skipped" if c.get("skipped") else "")
+        print(f"  {name:36s} {c.get('items', 0):4d} items  {c.get('new', 0):4d} new{flag}")
+    print(f"feeds: {totals['total']} records, {totals['added']} new, "
+          f"{totals['updated']} updated -- run `resolve` then `export`")
+    return 0
 
 
 def command_auth() -> int:
@@ -266,6 +315,10 @@ def dispatch(args: argparse.Namespace) -> int:
         counts = export.export_db(root)
         print(f"exported {counts['bookmarks']} bookmarks to {export.DEFAULT_DB}")
         return resolve_code if result["complete"] else 1
+
+    if args.command == "feeds":
+        return command_feeds(root, args.sources, args.only, args.skip_kind,
+                             args.engine, args.engine_python)
 
     if args.command == "status":
         command_status(root)
