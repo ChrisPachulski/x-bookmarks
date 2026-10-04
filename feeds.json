@@ -13,6 +13,13 @@
       "prefix": "/engineering/"
     },
     {
+      "name": "claude-dev-blog",
+      "kind": "rss",
+      "tier": 1,
+      "url": "https://claude.dev/rss.xml",
+      "since_days": 365
+    },
+    {
       "name": "anthropic-news",
       "kind": "index",
       "tier": 1,
