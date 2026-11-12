@@ -300,6 +300,12 @@ def test_photo_url_needs_no_variants(built: list) -> None:
     assert built[2]["media"][0]["reason"] == ""
 
 
+def test_conversation_id_is_carried_onto_the_record() -> None:
+    built = records.build_page([{"id": "5", "conversation_id": "4"}], None,
+                               RETRIEVED_AT)
+    assert built[0]["conversation_id"] == "4"
+
+
 ###############################################################################
 # Record status -- gaps outside the links
 ###############################################################################
@@ -315,6 +321,18 @@ def test_thumbnail_only_video_holds_a_linkless_record_at_inferred() -> None:
 
 def test_video_with_a_playable_url_leaves_the_record_verified() -> None:
     record = {"links": [], "media": [{**THUMBNAIL_ONLY, "url": "https://v/a.mp4"}]}
+    assert records.rollup_status(record) == "verified"
+
+
+def test_incomplete_thread_holds_the_record_at_inferred() -> None:
+    record = {"links": [], "media": [],
+              "thread": {"status": "blocked", "reason": "too old", "posts": []}}
+    assert records.rollup_status(record) == "inferred"
+
+
+def test_verified_thread_leaves_the_record_verified() -> None:
+    record = {"links": [], "media": [],
+              "thread": {"status": "verified", "reason": "", "posts": []}}
     assert records.rollup_status(record) == "verified"
 
 
@@ -366,3 +384,113 @@ def test_is_agent_notice(text: str, expected: bool) -> None:
 def test_long_page_that_opens_with_an_agent_notice_is_not_flagged() -> None:
     page = FIRECRAWL_NOTICE + "\n\nThe actual article. " * 200
     assert records.is_agent_notice(page) is False
+
+
+###############################################################################
+# Threads -- assembling the same-author chain
+###############################################################################
+
+
+def api_post(post_id: str, parent: str = "", text: str = "") -> dict:
+    post = {"id": post_id, "text": text or f"post {post_id}", "author_id": "1",
+            "created_at": "2026-11-10T17:03:36.000Z"}
+    if parent:
+        post["referenced_tweets"] = [{"type": "replied_to", "id": parent}]
+    return post
+
+
+def thread_record(record_id: str, parent: str = "",
+                  parent_author: str = "writer") -> dict:
+    referenced = ([{"type": "replied_to", "id": parent, "text": "",
+                    "author_username": parent_author}] if parent else [])
+    return {"id": record_id, "text": f"post {record_id}",
+            "created_at": "2026-11-10T17:03:36.000Z",
+            "author": {"id": "1", "username": "writer", "name": "Writer"},
+            "referenced": referenced, "metrics": {"reply_count": 3}}
+
+
+def ids(thread: dict) -> list[str]:
+    return [post["id"] for post in thread["posts"]]
+
+
+def test_self_reply_is_known_from_the_record_alone() -> None:
+    assert records.is_self_reply(thread_record("101", parent="100")) is True
+
+
+def test_reply_to_another_author_is_not_a_self_reply() -> None:
+    record = thread_record("101", parent="100", parent_author="someone_else")
+    assert records.is_self_reply(record) is False
+
+
+def test_opening_post_with_replies_may_open_a_thread() -> None:
+    assert records.opens_a_conversation(thread_record("100"), "100") is True
+
+
+def test_opening_post_without_replies_opens_no_thread() -> None:
+    record = {**thread_record("100"), "metrics": {"reply_count": 0}}
+    assert records.opens_a_conversation(record, "100") is False
+
+
+def test_thread_from_its_opening_post_lists_every_continuation_in_order() -> None:
+    found = [api_post("102", "101"), api_post("100"), api_post("101", "100")]
+    thread = records.assemble_thread(thread_record("100"), "100", found, None, False)
+    assert ids(thread) == ["100", "101", "102"]
+    assert thread["status"] == "verified"
+
+
+def test_thread_from_a_middle_post_reaches_both_ways() -> None:
+    found = [api_post("100"), api_post("101", "100"), api_post("102", "101"),
+             api_post("103", "102")]
+    record = thread_record("102", parent="101")
+    thread = records.assemble_thread(record, "100", found, None, False)
+    assert ids(thread) == ["100", "101", "102", "103"]
+
+
+def test_authors_replies_to_other_people_are_not_the_thread() -> None:
+    found = [api_post("100"), api_post("101", "100"), api_post("150", "149")]
+    thread = records.assemble_thread(thread_record("100"), "100", found, None, False)
+    assert "150" not in ids(thread)
+
+
+def test_thread_posts_keep_their_full_long_text() -> None:
+    long_post = {**api_post("101", "100"),
+                 "note_tweet": {"text": "the whole long post"}}
+    thread = records.assemble_thread(thread_record("100"), "100",
+                                     [long_post], None, False)
+    assert thread["posts"][1]["text"] == "the whole long post"
+
+
+def test_missing_ancestor_makes_the_thread_inferred_with_a_reason() -> None:
+    found = [api_post("103", "102"), api_post("104", "103")]
+    thread = records.assemble_thread(thread_record("103", parent="102"), "100",
+                                     found, None, False)
+    assert thread["status"] == "inferred"
+    assert "103" in thread["reason"]
+
+
+def test_more_posts_than_one_search_holds_makes_the_thread_inferred() -> None:
+    thread = records.assemble_thread(thread_record("100"), "100",
+                                     [api_post("101", "100")], None, True)
+    assert thread["status"] == "inferred"
+    assert thread["reason"]
+
+
+def test_opening_post_from_a_lookup_joins_the_thread() -> None:
+    found = [api_post("101", "100"), api_post("102", "101")]
+    root = {"text": "the opening post", "author_username": "Writer",
+            "created_at": "2026-11-10T17:00:00.000Z"}
+    thread = records.assemble_thread(thread_record("102", parent="101"), "100",
+                                     found, root, False)
+    assert ids(thread) == ["100", "101", "102"]
+    assert thread["posts"][0]["text"] == "the opening post"
+    assert thread["status"] == "verified"
+
+
+def test_thread_under_another_authors_post_starts_at_the_first_own_reply() -> None:
+    found = [api_post("101", "100"), api_post("102", "101")]
+    root = {"text": "someone else's post", "author_username": "someone_else",
+            "created_at": ""}
+    thread = records.assemble_thread(thread_record("102", parent="101"), "100",
+                                     found, root, False)
+    assert ids(thread) == ["101", "102"]
+    assert thread["status"] == "verified"

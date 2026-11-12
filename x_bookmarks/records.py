@@ -20,6 +20,10 @@ log = logging.getLogger(__name__)
 # never silently incomplete -- if content is missing, the status says why.
 ResolveStatus = Literal["verified", "unresolved", "blocked", "inferred", "pending"]
 
+# `source` of a record built from the bookmarks endpoint, as opposed to a
+# frontier feed (`feed:<name>`).
+X_SOURCE = "x_api_v2_bookmarks"
+
 
 class LinkRecord(TypedDict):
     """One outbound link found in a bookmark, before or after resolution."""
@@ -76,7 +80,36 @@ class ReferencedRecord(TypedDict):
     author_username: str
 
 
-class BookmarkRecord(TypedDict):
+class ThreadPostRecord(TypedDict):
+    id: str
+    text: str
+    created_at: str
+
+
+class ThreadRecord(TypedDict):
+    """The same-author thread a bookmarked post belongs to.
+
+    `posts` is the whole thread in order, the bookmarked post included, so
+    its position is explicit. Like a link, it carries its own status and a
+    reason whenever that status is not verified.
+    """
+
+    conversation_id: str
+    status: ResolveStatus
+    reason: str
+    posts: list[ThreadPostRecord]
+
+
+class BookmarkExtras(TypedDict, total=False):
+    """Keys only some records carry: older builds never wrote them, feed
+    records have no conversation, and `thread` exists only once a thread
+    walk was attempted."""
+
+    conversation_id: str  # id of the post that opened the conversation
+    thread: ThreadRecord
+
+
+class BookmarkRecord(BookmarkExtras):
     """One bookmark, self-contained. This is the on-disk unit."""
 
     id: str
@@ -293,10 +326,13 @@ def record_status(links: list[dict[str, Any]]) -> str:
 def capture_gaps(record: dict[str, Any]) -> list[str]:
     """Reasons the record's own content is incomplete, outside its links.
 
-    A video stored as a thumbnail is partial however well the links
-    resolved.
+    A video stored as a thumbnail, or a thread whose other posts were not
+    all retrieved, is partial however well the links resolved.
     """
     gaps = [media_gap(item) for item in (record.get("media") or [])]
+    thread = record.get("thread") or {}
+    if thread and thread.get("status") != "verified":
+        gaps.append(f"thread: {thread.get('reason') or 'not fully retrieved'}")
     return [gap for gap in gaps if gap]
 
 
@@ -469,7 +505,9 @@ def build_record(
         article=build_article(tweet),
         resolve_status="pending",
         retrieved_at=retrieved_at,
-        source="x_api_v2_bookmarks",
+        source=X_SOURCE,
+        # Free on the bookmark, and the only key a thread walk can search by.
+        conversation_id=str(tweet.get("conversation_id") or ""),
     )
 
 
@@ -491,3 +529,121 @@ def build_page(
         if record["id"]:
             records.append(record)
     return records
+
+
+###############################################################################
+# Threads -- the same-author reply chain around a bookmark
+###############################################################################
+
+
+def replied_to_id(references: list[dict[str, Any]]) -> str:
+    """Id of the post replied to, from API `referenced_tweets` or a record's
+    `referenced` -- both carry `type` and `id`. Empty when not a reply."""
+    for reference in references or []:
+        if reference.get("type") == "replied_to":
+            return str(reference.get("id") or "")
+    return ""
+
+
+def is_self_reply(record: dict[str, Any]) -> bool:
+    """True when the bookmark replies to its own author -- a thread post past
+    the first. Known from the record alone, with no API call."""
+    author = str((record.get("author") or {}).get("username") or "").lower()
+    return bool(author) and any(
+        reference.get("type") == "replied_to"
+        and str(reference.get("author_username") or "").lower() == author
+        for reference in (record.get("referenced") or [])
+    )
+
+
+def opens_a_conversation(record: dict[str, Any], conversation_id: str) -> bool:
+    """True for the first post of a conversation that drew replies. Whether
+    any of those are the author's own continuation only a search can tell."""
+    replies = int((record.get("metrics") or {}).get("reply_count") or 0)
+    return bool(conversation_id) and conversation_id == record.get("id") and replies > 0
+
+
+def thread_order(post_id: str) -> int:
+    """Post ids are time-ordered snowflakes, so numeric order is post order."""
+    return int(post_id) if post_id.isdigit() else 0
+
+
+def unwalked_thread(
+    conversation_id: str, status: ResolveStatus, reason: str,
+) -> ThreadRecord:
+    """A thread known to exist, or suspected, that no search retrieved."""
+    return ThreadRecord(conversation_id=conversation_id, status=status,
+                        reason=reason, posts=[])
+
+
+def assemble_thread(
+    record: dict[str, Any],
+    conversation_id: str,
+    found: list[dict[str, Any]],
+    root: dict[str, str] | None,
+    more: bool,
+) -> ThreadRecord:
+    """The same-author thread through a bookmark, from one conversation search.
+
+    `found` is the author's posts in the conversation, in API shape. `root`
+    is the opening post in lookup shape when the search did not return it,
+    None when unknown. The thread is the reply chain through the bookmark
+    that stays with its author; their replies to other people share the
+    conversation but are not the thread, and drop out here.
+    """
+    author = str((record.get("author") or {}).get("username") or "").lower()
+    nodes: dict[str, tuple[str, ThreadPostRecord]] = {}
+    for post in found:
+        post_id = str(post.get("id") or "")
+        if post_id:
+            nodes[post_id] = (
+                replied_to_id(post.get("referenced_tweets") or []),
+                ThreadPostRecord(id=post_id, text=post_text(post),
+                                 created_at=str(post.get("created_at") or "")),
+            )
+    root_is_own = (root is not None
+                   and str(root.get("author_username") or "").lower() == author)
+    if root is not None and root_is_own and conversation_id not in nodes:
+        nodes[conversation_id] = ("", ThreadPostRecord(
+            id=conversation_id, text=str(root.get("text") or ""),
+            created_at=str(root.get("created_at") or "")))
+    record_id = str(record.get("id") or "")
+    nodes[record_id] = (
+        replied_to_id(record.get("referenced") or []),
+        ThreadPostRecord(id=record_id, text=str(record.get("text") or ""),
+                         created_at=str(record.get("created_at") or "")),
+    )
+
+    # Up through the bookmark's own ancestors, then down through every reply
+    # the author made to any post already in the chain.
+    members = {record_id}
+    top = record_id
+    while nodes[top][0] in nodes and nodes[top][0] not in members:
+        top = nodes[top][0]
+        members.add(top)
+    while True:
+        children = {post_id for post_id, (parent, _) in nodes.items()
+                    if parent in members and post_id not in members}
+        if not children:
+            break
+        members |= children
+
+    gaps: list[str] = []
+    top_parent = nodes[top][0]
+    # Replying under someone else's post is where an author's thread starts,
+    # not a gap; any other parent the search did not return is a missing post.
+    under_another_author = (root is not None and not root_is_own
+                            and top_parent == conversation_id)
+    if top != conversation_id and top_parent and not under_another_author:
+        gaps.append(f"posts above {top} were not returned (older than the "
+                    "search window, deleted, or protected)")
+    if more:
+        gaps.append("the author has more posts in this conversation than one "
+                    "search returns; later thread posts may be missing")
+
+    return ThreadRecord(
+        conversation_id=conversation_id,
+        status="inferred" if gaps else "verified",
+        reason="; ".join(gaps),
+        posts=[nodes[post_id][1] for post_id in sorted(members, key=thread_order)],
+    )

@@ -24,6 +24,7 @@ from .records import (
     is_agent_notice,
     is_bare_link,
     link_identity,
+    thread_order,
 )
 
 log = logging.getLogger(__name__)
@@ -171,6 +172,9 @@ def merge_record(existing: BookmarkRecord, incoming: BookmarkRecord) -> Bookmark
     merged["links"] = links
     merged["media"] = merge_media(existing.get("media") or [],
                                   incoming.get("media") or [])
+    if existing.get("thread") or incoming.get("thread"):
+        merged["thread"] = merge_thread(existing.get("thread"),
+                                        incoming.get("thread"))
 
     # Derived, never inherited. Carrying a status across a merge is how a
     # record ends up marked finished while holding links that were never
@@ -200,6 +204,37 @@ def merge_media(
                  if item.get("media_key") not in incoming_keys)
     return media
 
+
+# Which of two thread walks speaks for the thread. A re-walk that failed or
+# fell outside the search window must not un-settle one that succeeded.
+_THREAD_RANK = {
+    "verified": 3, "inferred": 2, "unresolved": 1, "blocked": 1, "pending": 0,
+}
+
+
+def merge_thread(
+    existing: dict[str, Any] | None, incoming: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Two walks of one thread: posts are the union, never fewer than either.
+
+    Where both copies hold a post, the longer text wins. The status and
+    reason come from the better-ranked walk, the incoming one on a tie.
+    """
+    if not existing or not incoming:
+        return dict(existing or incoming or {})
+    posts = {post["id"]: post for post in existing.get("posts") or []}
+    for post in incoming.get("posts") or []:
+        prior = posts.get(post["id"])
+        if not prior or len(post.get("text") or "") >= len(prior.get("text") or ""):
+            posts[post["id"]] = post
+    rank_in = _THREAD_RANK.get(incoming.get("status") or "", 0)
+    rank_old = _THREAD_RANK.get(existing.get("status") or "", 0)
+    speaker = incoming if rank_in >= rank_old else existing
+    merged = {**speaker, "posts": sorted(posts.values(),
+                                         key=lambda post: thread_order(post["id"]))}
+    merged["conversation_id"] = (incoming.get("conversation_id")
+                                 or existing.get("conversation_id") or "")
+    return merged
 
 
 def put_record(root: Path, record: BookmarkRecord) -> bool:

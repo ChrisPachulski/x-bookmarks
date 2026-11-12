@@ -457,8 +457,8 @@ def resolve_record(
     """
     links = record.get("links") or []
     if not links:
-        # Nothing to resolve, but a thumbnail-only video still keeps the
-        # record below verified.
+        # Nothing to resolve, but a thumbnail-only video or an incomplete
+        # thread still keeps the record below verified.
         return derive_status(record)  # type: ignore[return-value, arg-type]
 
     # An Article link on a bookmark points at that bookmark's own long-form

@@ -319,14 +319,41 @@ def test_reset_bare_x_post_links_covers_inferred_ones_too(tmp_path: Path) -> Non
 
 
 ###############################################################################
-# Media and partial captures survive a merge
+# Threads, media, and partial captures survive a merge
 ###############################################################################
+
+
+def make_thread(status: str = "verified", post_ids: tuple = ("1", "2"),
+                reason: str = "") -> dict:
+    return {"conversation_id": "1", "status": status, "reason": reason,
+            "posts": [{"id": i, "text": f"post {i}", "created_at": ""} for i in post_ids]}
 
 
 def make_video(url: str = "") -> dict:
     return {"media_key": "13_1", "kind": "video", "url": url,
             "preview_image_url": "https://pbs.twimg.com/thumb.jpg",
             "duration_ms": 1000, "reason": ""}
+
+
+def test_refetch_keeps_the_stored_thread(root: Path) -> None:
+    """A fetch never carries a thread; the walk happened once, later."""
+    store.put_record(root, make_record("1", thread=make_thread()))
+    store.put_record(root, make_record("1"))
+    assert store.read_record(root, "1")["thread"]["posts"][1]["text"] == "post 2"
+
+
+def test_failed_rewalk_does_not_downgrade_a_verified_thread(root: Path) -> None:
+    store.put_record(root, make_record("1", thread=make_thread()))
+    store.put_record(root, make_record("1", thread=make_thread(
+        "blocked", post_ids=(), reason="older than the window")))
+    assert store.read_record(root, "1")["thread"]["status"] == "verified"
+
+
+def test_thread_posts_are_the_union_of_both_walks(root: Path) -> None:
+    store.put_record(root, make_record("1", thread=make_thread(post_ids=("1", "2"))))
+    store.put_record(root, make_record("1", thread=make_thread(post_ids=("1", "3"))))
+    posts = store.read_record(root, "1")["thread"]["posts"]
+    assert [post["id"] for post in posts] == ["1", "2", "3"]
 
 
 def test_refetch_without_a_video_url_keeps_the_stored_url(root: Path) -> None:

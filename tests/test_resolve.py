@@ -520,3 +520,11 @@ def test_record_with_no_links_but_a_thumbnail_only_video_is_inferred() -> None:
     record = {"id": "1", "links": [], "media": [
         {"media_key": "13_1", "kind": "video", "url": "", "preview_image_url": "t"}]}
     assert resolve.resolve_record(record)["resolve_status"] == "inferred"
+
+
+def test_record_with_verified_links_and_an_incomplete_thread_is_inferred() -> None:
+    record = {"id": "1", "links": [make_link(status="verified", text="body")],
+              "media": [], "thread": {"conversation_id": "1", "status": "inferred",
+                                      "reason": "posts above 3 were not returned",
+                                      "posts": []}}
+    assert resolve.resolve_record(record)["resolve_status"] == "inferred"

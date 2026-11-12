@@ -6,6 +6,7 @@
     python cli.py run                  fetch then resolve
     python cli.py status               what is on disk right now
     python cli.py feeds                retrieve frontier sources (feeds.json)
+    python cli.py threads              walk same-author threads (last 7 days)
 
 Every command is safe to re-run. The store is append-only by design.
 """
@@ -16,7 +17,7 @@ import logging
 import sys
 from pathlib import Path
 
-from x_bookmarks import auth, export, feeds, fetch, resolve, store
+from x_bookmarks import auth, export, feeds, fetch, records, resolve, store
 
 ###############################################################################
 # Setup
@@ -70,6 +71,17 @@ def build_parser() -> argparse.ArgumentParser:
                             help="walk every page rather than stopping early")
 
     subparsers.add_parser("status", help="summarize the store")
+
+    threads_parser = subparsers.add_parser(
+        "threads", help="walk same-author threads for stored bookmarks "
+                        "(recent search reaches posts from the last 7 days)")
+    threads_parser.add_argument("--id", dest="ids", action="append", default=[],
+                                help="walk only this bookmark id, even if a "
+                                     "thread is stored; repeatable")
+    threads_parser.add_argument("--limit", type=int,
+                                default=fetch.MAX_THREAD_SEARCHES,
+                                help="at most N searches this run "
+                                     f"(default {fetch.MAX_THREAD_SEARCHES})")
 
     feeds_parser = subparsers.add_parser(
         "feeds", help="retrieve frontier sources listed in feeds.json")
@@ -221,9 +233,40 @@ def command_resolve(root: Path, resolve_all: bool, limit: int | None) -> int:
 
     missing = resolve.missing_x_post_ids(pending, post_lookup,
                                          skip_resolved=not resolve_all)
+    client = None
     if missing:
         client = fetch.build_client(auth.get_access_token())
         post_lookup.update(fetch.fetch_posts(client, missing))
+
+    # A thread is walked once, when its bookmark first arrives. Records that
+    # are already settled are never re-searched, even under --all, so a
+    # routine run costs searches only for what is new.
+    arriving = [
+        record for record in pending
+        if record.get("source") == records.X_SOURCE
+        and record.get("resolve_status") in (None, "", "pending")
+        and not record.get("thread")
+    ]
+    threads: dict = {}
+    if arriving:
+        try:
+            client = client or fetch.build_client(auth.get_access_token())
+        except Exception as error:
+            # Walking threads is an extra; a machine without X access still
+            # resolves everything else.
+            print(f"threads not walked -- no X API access: {error}",
+                  file=sys.stderr)
+        else:
+            walk = fetch.fetch_threads(client, arriving)
+            threads = walk["threads"]
+            print(f"threads: {walk['searches']} searches, "
+                  f"{walk['lookups']} posts looked up, "
+                  f"{len(threads)} recorded")
+    pending = [
+        {**record, "thread": threads[record["id"]]}
+        if record["id"] in threads else record
+        for record in pending
+    ]
 
     # A resolve whose write failed did not happen. Count persistence failures
     # here so the run cannot report success while content quietly went unsaved.
@@ -251,6 +294,50 @@ def command_resolve(root: Path, resolve_all: bool, limit: int | None) -> int:
         return 1
     print(f"resolved {len(pending)} records")
     return 0
+
+
+def command_threads(root: Path, ids: list[str], limit: int) -> int:
+    """Walk same-author threads for bookmarks already in the store.
+
+    Without --id, every bookmark with no thread attempt yet: an older
+    self-reply is marked blocked without a call, and only posts from the
+    last 7 days are searched. With --id, exactly those bookmarks, re-walked
+    even when a thread is stored -- the merge keeps the better walk.
+    """
+    stored = [record for record in store.iter_records(root)
+              if record.get("source") == records.X_SOURCE]
+    if ids:
+        wanted = set(ids)
+        targets = [record for record in stored if record["id"] in wanted]
+        for absent in sorted(wanted - {record["id"] for record in targets}):
+            print(f"no stored bookmark {absent}", file=sys.stderr)
+    else:
+        targets = [record for record in stored if not record.get("thread")]
+    if not targets:
+        print("No bookmarks to walk.")
+        return 0
+
+    client = fetch.build_client(auth.get_access_token())
+    walk = fetch.fetch_threads(client, targets, limit=limit)
+    by_status: collections.Counter = collections.Counter()
+    persist_failures: list[str] = []
+    for record in targets:
+        thread = walk["threads"].get(record["id"])
+        if thread is None:
+            continue
+        try:
+            store.put_record(root, {**record, "thread": thread})
+        except Exception as exc:
+            persist_failures.append(record["id"])
+            print(f"FAILED to persist {record['id']}: {exc}", file=sys.stderr)
+            continue
+        by_status[thread["status"]] += 1
+
+    outcomes = ", ".join(f"{status} {count}"
+                         for status, count in by_status.most_common())
+    print(f"threads: {walk['searches']} searches, {walk['lookups']} posts "
+          f"looked up, {sum(by_status.values())} recorded ({outcomes or 'none'})")
+    return 1 if persist_failures else 0
 
 
 def command_status(root: Path) -> None:
@@ -304,7 +391,7 @@ def dispatch(args: argparse.Namespace) -> int:
                   "only a notice to AI agents")
             rederived = store.rederive_statuses(root)
             print(f"{rederived} records changed status on re-derivation "
-                  "(thumbnail-only video)")
+                  "(thumbnail-only video, incomplete thread)")
         return command_resolve(root, args.all, args.limit)
 
     if args.command == "run":
@@ -331,6 +418,9 @@ def dispatch(args: argparse.Namespace) -> int:
     if args.command == "status":
         command_status(root)
         return 0
+
+    if args.command == "threads":
+        return command_threads(root, args.ids, args.limit)
 
     if args.command == "export":
         counts = export.export_db(root, args.db)
