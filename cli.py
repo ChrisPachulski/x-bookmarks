@@ -251,13 +251,13 @@ def command_resolve(root: Path, resolve_all: bool, limit: int | None) -> int:
     if arriving:
         try:
             client = client or fetch.build_client(auth.get_access_token())
+            walk = fetch.fetch_threads(client, arriving)
         except Exception as error:
-            # Walking threads is an extra; a machine without X access still
-            # resolves everything else.
-            print(f"threads not walked -- no X API access: {error}",
+            # Walking threads is an extra. A machine without X access, or a
+            # walk that breaks, must not cost the rest of the resolve.
+            print(f"threads not walked: {type(error).__name__}: {error}",
                   file=sys.stderr)
         else:
-            walk = fetch.fetch_threads(client, arriving)
             threads = walk["threads"]
             print(f"threads: {walk['searches']} searches, "
                   f"{walk['lookups']} posts looked up, "

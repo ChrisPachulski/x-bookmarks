@@ -638,8 +638,11 @@ def assemble_thread(
         gaps.append(f"posts above {top} were not returned (older than the "
                     "search window, deleted, or protected)")
     if more:
+        # Search returns newest first, so a cut falls on the oldest posts --
+        # which in a thread are usually its continuation.
         gaps.append("the author has more posts in this conversation than one "
-                    "search returns; later thread posts may be missing")
+                    "search returns, and the oldest were cut; thread posts "
+                    "may be missing")
 
     return ThreadRecord(
         conversation_id=conversation_id,
