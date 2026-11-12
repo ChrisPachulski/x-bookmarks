@@ -39,6 +39,8 @@ Three stages, one command: `fetch` pulls bookmark pages from the API,
 - **Content, not pointers** -- articles become text, PDFs are extracted,
   YouTube links become raw transcripts, and X permalinks resolve through the
   API -- never by scraping, which returns reply text masquerading as the post.
+  Native X video is stored as its playable file URL, and a bookmarked post
+  that belongs to a same-author thread carries the rest of that thread.
 - **Append-only store** -- no code path deletes a record, truncates stored
   content, or lets a re-fetch downgrade a verified link. Re-running only adds
   or enriches.
@@ -170,6 +172,7 @@ links with stored content: 121
 .venv/bin/python cli.py fetch        # bookmarks only, no content
 .venv/bin/python cli.py resolve      # resolve links already stored
 .venv/bin/python cli.py status       # what is on disk
+.venv/bin/python cli.py threads      # walk threads for stored bookmarks
 .venv/bin/python cli.py export       # rebuild bookmarks.db from the store
 ```
 
@@ -180,9 +183,25 @@ cli.py fetch --max-pages 1      # first 100 bookmarks, for a smoke test
 cli.py resolve --limit 20       # resolve a slice at a time
 cli.py resolve --all            # re-resolve links already verified
 cli.py resolve --repair         # one-time: reset X-post links stored by the
-                                # old scraping path, re-resolve via the API
+                                # old scraping path, re-resolve via the API,
+                                # relabel stored notices to AI agents, and
+                                # derive every record's status again
+cli.py threads --id 123         # walk one bookmark's thread, even if walked
+cli.py threads --limit 10       # at most 10 searches this run
 cli.py --store /path/to/store   # somewhere other than ./store
 ```
+
+### Threads and what they cost
+
+`resolve` walks a thread once, when its bookmark first arrives: a post that
+replies to its own author, or the opening post of a conversation that drew
+replies. Each walk is one recent search, `conversation_id:<id> from:<author>`,
+one page of at most 100 posts, billed per post returned; at most 50 searches
+run per command. The author's replies to other people come back in that
+search and are dropped, so a popular post can cost more than its thread.
+Recent search reaches back 7 days. A self-reply older than that is marked
+`blocked` without a call; an older opening post is not walked at all.
+`threads` runs the same walk over bookmarks already stored.
 
 A capped or partially failed fetch exits non-zero and says so: an incremental
 re-run stops at the first fully known page, so the only way to recover a gap
@@ -224,8 +243,9 @@ API's sliding window. Regenerate it; never hand-edit it.
 
 Each record is one `BookmarkRecord`: `id`, `text`, `created_at`, `lang`,
 `author {id, username, name}`, `links`, `media`, `metrics`, `referenced`,
-`article`, `resolve_status`, `retrieved_at`, and `source`
-(`x_bookmarks/records.py:78`). The fields that carry retrieved content:
+`article`, `resolve_status`, `retrieved_at`, and `source`, plus
+`conversation_id` and `thread` where they apply (`x_bookmarks/records.py`,
+`BookmarkRecord`). The fields that carry retrieved content:
 
 - `links[]` -- one entry per outbound link. `short_url` is the t.co form and
   is a link's stable identity: resolution rewrites `expanded_url` to the
@@ -246,6 +266,13 @@ Each record is one `BookmarkRecord`: `id`, `text`, `created_at`, `lang`,
   The API truncates `text` at 280 characters and puts the full post under
   `note_tweet`; the fetch asks for both and stores the long one
   (`records.py`, `post_text`).
+- `media[]` -- for a photo, `url` is the image. For video and GIFs it is the
+  highest-bitrate mp4 from the API's `variants`, with `preview_image_url` the
+  thumbnail. The file itself is not downloaded. A video with no playable url
+  says why in its `reason`.
+- `thread` -- present once a thread walk ran. `posts` is the whole
+  same-author thread in order, the bookmarked post included, each with `id`,
+  `text`, and `created_at`; `status` and `reason` work as on a link.
 
 Reading it downstream:
 
@@ -270,12 +297,16 @@ Every record and link carries an honest status:
 | `verified` | content retrieved and confirmed |
 | `unresolved` | fetch attempted and failed; `reason` says why |
 | `blocked` | cannot be attempted (image, private-address host, another author's X Article) |
-| `inferred` | partial -- some links resolved, others did not |
+| `inferred` | partial -- some content captured, some known missing; `reason` says what |
 | `pending` | not yet attempted |
 
-A record whose links partly failed reads `inferred`, never `verified`.
-A record with no links at all also reads `verified` -- nothing to resolve is
-a complete record (`x_bookmarks/records.py:194`).
+A record whose links partly failed reads `inferred`, never `verified`. So
+does a record whose links all resolved but whose own content is incomplete:
+a video stored as a thumbnail only, or a `thread` that is not `verified`
+(`records.py`, `rollup_status`). A page whose extracted text is only a notice
+addressed to AI agents is kept raw and marked `inferred`, not `verified`.
+A record with no links and no such gap reads `verified` -- nothing to resolve
+is a complete record.
 
 ## Tests
 
