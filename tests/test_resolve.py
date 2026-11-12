@@ -491,8 +491,29 @@ def test_failing_callback_does_not_abort_the_batch(monkeypatch) -> None:
 
 
 ###############################################################################
-# Honest status -- gaps outside the links
+# Honest status -- content that is not the content
 ###############################################################################
+
+AGENT_NOTICE = ("If you are an AI agent, LLM, or automated system, use the "
+                "onboarding path that matches your setup.")
+
+
+def test_agent_notice_page_is_inferred_not_verified(monkeypatch) -> None:
+    """A hidden block addressed to agents is what a no-JavaScript fetch can
+    extract instead of the page. Holding it is not holding the page."""
+    monkeypatch.setattr(resolve, "expand_url", lambda url: (url, ""))
+    monkeypatch.setattr(resolve, "extract_article",
+                        lambda url: ("Job search tools", AGENT_NOTICE, ""))
+    resolved = resolve.resolve_link(make_link())
+    assert resolved["status"] == "inferred"
+    assert "AI agents" in resolved["reason"]
+
+
+def test_agent_notice_page_keeps_its_raw_text(monkeypatch) -> None:
+    monkeypatch.setattr(resolve, "expand_url", lambda url: (url, ""))
+    monkeypatch.setattr(resolve, "extract_article",
+                        lambda url: ("", AGENT_NOTICE, ""))
+    assert resolve.resolve_link(make_link())["text"] == AGENT_NOTICE
 
 
 def test_record_with_no_links_but_a_thumbnail_only_video_is_inferred() -> None:

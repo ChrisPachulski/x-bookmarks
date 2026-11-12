@@ -144,6 +144,37 @@ def is_bare_link(text: str) -> bool:
     return bool(re.fullmatch(r"https?://\S+", (text or "").strip()))
 
 
+# Opens by addressing a machine reader: "If you are an AI agent, LLM, or
+# automated system, ...". The trailing punctuation or "or" is what keeps
+# "If you are an AI agent builder" -- a human reader -- from matching.
+_AGENT_NOTICE = re.compile(
+    r"\A\W*(?:if\s+you\s+are|if\s+you['’]re|you\s+are)\s+an?\s+"
+    r"(?:ai\s+agent|ai\s+assistant|llm|(?:large\s+)?language\s+model"
+    r"|automated\s+(?:system|agent|tool))"
+    r"(?:\s*[,.:;)]|\s+or\s)",
+    re.I,
+)
+# Long enough for the onboarding stubs seen in practice (Firecrawl's is 639
+# characters), short enough that an article which merely opens with such a
+# line keeps its verified status.
+AGENT_NOTICE_MAX_CHARS = 2_000
+AGENT_NOTICE_REASON = (
+    "the extracted text is a notice addressed to AI agents, not the page's "
+    "content for readers; kept raw, but the page itself was not captured"
+)
+
+
+def is_agent_notice(text: str) -> bool:
+    """True when extracted page text is only a notice addressed to AI agents.
+
+    Some sites serve a hidden block telling agents where to go instead; a
+    no-JavaScript fetch can extract that block and nothing else. Holding it
+    is not holding the page, so it must never count as verified.
+    """
+    text = text or ""
+    return len(text) <= AGENT_NOTICE_MAX_CHARS and bool(_AGENT_NOTICE.match(text))
+
+
 def playable_url(item: dict[str, Any]) -> str:
     """Best playable URL for a video or GIF, else empty string.
 

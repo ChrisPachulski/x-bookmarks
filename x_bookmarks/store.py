@@ -18,8 +18,10 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .records import (
+    AGENT_NOTICE_REASON,
     BookmarkRecord,
     derive_status,
+    is_agent_notice,
     is_bare_link,
     link_identity,
 )
@@ -138,6 +140,14 @@ def merge_record(existing: BookmarkRecord, incoming: BookmarkRecord) -> Bookmark
         for link in existing_links
         if link.get("status") == "verified" and link.get("text")
     }
+    # Partial captures hold raw text too (an agent-directed notice, say).
+    # They are retried, so their status may move, but an empty re-fetch must
+    # not blank the only copy of what was stored.
+    text_by_key = {
+        link_identity(link): link["text"]
+        for link in existing_links
+        if link.get("text")
+    }
     links = []
     for link in incoming_links:
         prior = resolved_by_key.get(link_identity(link))
@@ -146,6 +156,8 @@ def merge_record(existing: BookmarkRecord, incoming: BookmarkRecord) -> Bookmark
         # a deliberate re-resolution and wins.
         if prior and not (link.get("status") == "verified" and link.get("text")):
             links.append(prior)
+        elif not link.get("text") and text_by_key.get(link_identity(link)):
+            links.append({**link, "text": text_by_key[link_identity(link)]})
         else:
             links.append(link)
     # A link the API omits this time is still part of the durable record --
@@ -227,6 +239,30 @@ def reset_bare_x_post_links(root: Path) -> int:
             write_json_atomic(record_path(root, record["id"]), record)
             repaired += 1
     return repaired
+
+
+def relabel_agent_notices(root: Path) -> int:
+    """Mark stored links holding only an agent-directed notice as inferred.
+
+    Earlier builds stored such a notice as a verified page. The merge logic
+    protects verified content, so a re-resolve can never correct it, and
+    resetting it to pending would put the only copy at the mercy of one
+    re-fetch. So nothing is fetched: the text stays, the status and reason
+    change, and the record's status is derived again. Returns records touched.
+    """
+    relabeled = 0
+    for record in list(iter_records(root)):
+        touched = False
+        for link in (record.get("links") or []):
+            if (link.get("status") == "verified"
+                    and is_agent_notice(link.get("text") or "")):
+                link.update(status="inferred", reason=AGENT_NOTICE_REASON)
+                touched = True
+        if touched:
+            write_json_atomic(record_path(root, record["id"]),
+                              derive_status(record))
+            relabeled += 1
+    return relabeled
 
 
 def rederive_statuses(root: Path) -> int:

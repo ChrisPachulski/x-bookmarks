@@ -15,10 +15,12 @@ import re
 from typing import Any
 
 from .records import (
+    AGENT_NOTICE_REASON,
     BookmarkRecord,
     LinkRecord,
     classify_link,
     derive_status,
+    is_agent_notice,
     is_bare_link,
     is_x_article,
     record_status,
@@ -382,7 +384,11 @@ def resolve_link(
     title, text, reason = extract_article(final_url)
     if title and not resolved.get("title"):
         resolved["title"] = title
-    if text:
+    if text and is_agent_notice(text):
+        # Raw text is kept -- it is what the page served -- but it is not the
+        # page, so it reads as partial rather than retrieved.
+        resolved.update(status="inferred", text=text, reason=AGENT_NOTICE_REASON)
+    elif text:
         resolved.update(status="verified", text=text, reason="")
     else:
         resolved.update(

@@ -319,7 +319,7 @@ def test_reset_bare_x_post_links_covers_inferred_ones_too(tmp_path: Path) -> Non
 
 
 ###############################################################################
-# Media survives a merge
+# Media and partial captures survive a merge
 ###############################################################################
 
 
@@ -348,6 +348,55 @@ def test_merge_holds_a_thumbnail_only_video_record_at_inferred(root: Path) -> No
     stored = store.read_record(root, "1")
     assert stored["resolve_status"] == "inferred"
     assert stored["media"][0]["reason"]
+
+
+def test_refetch_does_not_blank_the_text_of_a_partial_capture(root: Path) -> None:
+    """Only verified links stand in whole; a partial one may be retried, but
+    its stored raw text must not be traded for an empty re-fetch."""
+    partial = make_link(status="inferred", reason="agent notice",
+                        text="If you are an AI agent, read this.")
+    store.put_record(root, make_record("1", links=[partial]))
+    store.put_record(root, make_record("1", links=[make_link()]))
+    assert store.read_record(root, "1")["links"][0]["text"] == (
+        "If you are an AI agent, read this.")
+
+
+###############################################################################
+# Repair -- agent notices stored as verified pages
+###############################################################################
+
+NOTICE = "If you are an AI agent, LLM, or automated system, fetch /agents.md."
+
+
+def test_relabel_marks_a_stored_agent_notice_inferred(tmp_path: Path) -> None:
+    link = make_link(status="verified", text=NOTICE)
+    store.save_records(tmp_path, [make_record("1", links=[link])])
+    assert store.relabel_agent_notices(tmp_path) == 1
+    stored = store.read_record(tmp_path, "1")["links"][0]
+    assert stored["status"] == "inferred"
+    assert stored["reason"]
+
+
+def test_relabel_keeps_the_notice_text(tmp_path: Path) -> None:
+    link = make_link(status="verified", text=NOTICE)
+    store.save_records(tmp_path, [make_record("1", links=[link])])
+    store.relabel_agent_notices(tmp_path)
+    assert store.read_record(tmp_path, "1")["links"][0]["text"] == NOTICE
+
+
+def test_relabel_rolls_the_record_down_to_inferred(tmp_path: Path) -> None:
+    link = make_link(status="verified", text=NOTICE)
+    store.save_records(tmp_path, [make_record("1", links=[link],
+                                              resolve_status="verified")])
+    store.relabel_agent_notices(tmp_path)
+    assert store.read_record(tmp_path, "1")["resolve_status"] == "inferred"
+
+
+def test_relabel_leaves_real_page_text_verified(tmp_path: Path) -> None:
+    link = make_link(status="verified", text="An actual article body.")
+    store.save_records(tmp_path, [make_record("1", links=[link])])
+    assert store.relabel_agent_notices(tmp_path) == 0
+    assert store.read_record(tmp_path, "1")["links"][0]["status"] == "verified"
 
 
 def test_rederive_marks_a_stored_thumbnail_only_video_record_inferred(tmp_path: Path) -> None:

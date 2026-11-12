@@ -60,7 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--repair", action="store_true",
         help="reset X-post links holding only a URL (quoted Articles from "
              "earlier builds), then re-resolve them through the API; also "
-             "derive every record's status again (without network)")
+             "relabel stored pages that are only a notice to AI agents and "
+             "derive every record's status again (both without network)")
 
     run_parser = subparsers.add_parser("run", help="fetch then resolve")
     run_parser.add_argument("--max-pages", type=int, default=None)
@@ -298,6 +299,9 @@ def dispatch(args: argparse.Namespace) -> int:
         if args.repair:
             count = store.reset_bare_x_post_links(root)
             print(f"reset {count} records holding bare-link X-post text")
+            relabeled = store.relabel_agent_notices(root)
+            print(f"relabeled {relabeled} records whose stored page text is "
+                  "only a notice to AI agents")
             rederived = store.rederive_statuses(root)
             print(f"{rederived} records changed status on re-derivation "
                   "(thumbnail-only video)")

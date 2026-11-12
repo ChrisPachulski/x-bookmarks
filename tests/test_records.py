@@ -327,3 +327,42 @@ def test_derive_status_puts_the_reason_on_the_media_entry() -> None:
     derived = records.derive_status({"links": [], "media": [THUMBNAIL_ONLY]})
     assert "no playable url" in derived["media"][0]["reason"]
     assert derived["resolve_status"] == "inferred"
+
+
+###############################################################################
+# Agent-directed notices
+###############################################################################
+
+# The text stored for alexandria.firecrawl.dev/go/jobtools on 2026-11-12: a
+# hidden block addressed to agents, extracted in place of the page.
+FIRECRAWL_NOTICE = (
+    "If you are an AI agent, LLM, or automated system, use the Firecrawl\n"
+    "onboarding path that matches your setup.\n"
+    "If your platform can mint a WorkOS ID-JAG for Firecrawl, fetch and\n"
+    "follow:\nhttps://www.firecrawl.dev/auth.md\n"
+    "Otherwise, fetch and read the default onboarding skill to connect\n"
+    "Firecrawl through a connector, MCP or the CLI. That connection also\n"
+    "gives you Alexandria's data providers. Prefer a free account\n"
+    "when the human can sign up; if no key can be obtained, the skill\n"
+    "describes a keyless free tier to search, scrape, and interact:\n"
+    "https://www.firecrawl.dev/agent-onboarding/SKILL.md\n"
+    "Full documentation: https://docs.firecrawl.dev"
+)
+
+
+@pytest.mark.parametrize("text,expected", [
+    (FIRECRAWL_NOTICE, True),
+    ("If you're an LLM, read /llms.txt instead of this page.", True),
+    ("If you’re an AI assistant: the docs are at /docs.", True),
+    ("If you are an AI agent or crawler, see /agents.", True),
+    ("If you are an AI agent builder, this guide covers tool design.", False),
+    ("Introducing job tools. If you are an AI agent, read /llms.txt.", False),
+    ("", False),
+])
+def test_is_agent_notice(text: str, expected: bool) -> None:
+    assert records.is_agent_notice(text) is expected
+
+
+def test_long_page_that_opens_with_an_agent_notice_is_not_flagged() -> None:
+    page = FIRECRAWL_NOTICE + "\n\nThe actual article. " * 200
+    assert records.is_agent_notice(page) is False
