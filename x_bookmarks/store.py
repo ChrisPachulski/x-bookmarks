@@ -17,7 +17,12 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterator
 
-from .records import BookmarkRecord, is_bare_link, link_identity, record_status
+from .records import (
+    BookmarkRecord,
+    derive_status,
+    is_bare_link,
+    link_identity,
+)
 
 log = logging.getLogger(__name__)
 
@@ -152,13 +157,37 @@ def merge_record(existing: BookmarkRecord, incoming: BookmarkRecord) -> Bookmark
         if link_identity(link) not in incoming_keys
     )
     merged["links"] = links
+    merged["media"] = merge_media(existing.get("media") or [],
+                                  incoming.get("media") or [])
 
     # Derived, never inherited. Carrying a status across a merge is how a
     # record ends up marked finished while holding links that were never
     # attempted -- which then makes the resolve stage skip it forever.
-    merged["resolve_status"] = record_status(merged.get("links") or [])
+    return derive_status(merged)  # type: ignore[return-value]
 
-    return merged  # type: ignore[return-value]
+
+def merge_media(
+    existing: list[dict[str, Any]], incoming: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Media from a re-fetch, never losing a playable url already stored.
+
+    A copy fetched without `variants` -- an older build, or a database from
+    a machine running one -- carries video with an empty url. Letting it win
+    would put the thumbnail-only record back. Keyed on media_key, which X
+    assigns and never changes; an entry the re-fetch omits is kept.
+    """
+    stored = {item.get("media_key"): item for item in existing}
+    media = []
+    for item in incoming:
+        prior = stored.get(item.get("media_key")) or {}
+        if prior.get("url") and not item.get("url"):
+            item = {**item, "url": prior["url"]}
+        media.append(item)
+    incoming_keys = {item.get("media_key") for item in incoming}
+    media.extend(item for item in existing
+                 if item.get("media_key") not in incoming_keys)
+    return media
+
 
 
 def put_record(root: Path, record: BookmarkRecord) -> bool:
@@ -198,6 +227,24 @@ def reset_bare_x_post_links(root: Path) -> int:
             write_json_atomic(record_path(root, record["id"]), record)
             repaired += 1
     return repaired
+
+
+def rederive_statuses(root: Path) -> int:
+    """Derive every stored record's status again from what it holds.
+
+    Status is derived when a record is merged or resolved, so a record that
+    is never touched again keeps whatever an older build decided -- a video
+    stored as a thumbnail goes on reading verified. Nothing is fetched and
+    no content changes. Returns how many records changed status.
+    """
+    changed = 0
+    for record in list(iter_records(root)):
+        derived = derive_status(record)
+        if derived != record:
+            write_json_atomic(record_path(root, record["id"]), derived)
+            changed += derived["resolve_status"] != record.get("resolve_status")
+    return changed
+
 
 def append_manifest(root: Path, record: BookmarkRecord) -> None:
     """Append one index line. Cheap to grep, cheap to stream."""

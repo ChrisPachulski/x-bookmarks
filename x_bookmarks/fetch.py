@@ -30,7 +30,12 @@ TWEET_FIELDS = [
     "note_tweet",
 ]
 USER_FIELDS = ["id", "username", "name"]
-MEDIA_FIELDS = ["media_key", "type", "url", "preview_image_url", "duration_ms"]
+MEDIA_FIELDS = [
+    "media_key", "type", "url", "preview_image_url", "duration_ms",
+    # Video and GIFs have no `url`; their playable files are the variants.
+    # Without this field a native video is stored as a thumbnail.
+    "variants",
+]
 EXPANSIONS = [
     "author_id", "attachments.media_keys",
     # Both halves matter: the first returns the quoted post's text, the second

@@ -316,3 +316,54 @@ def test_reset_bare_x_post_links_covers_inferred_ones_too(tmp_path: Path) -> Non
 
     assert store.reset_bare_x_post_links(tmp_path) == 1
     assert store.read_record(tmp_path, "1")["links"][0]["status"] == "pending"
+
+
+###############################################################################
+# Media survives a merge
+###############################################################################
+
+
+def make_video(url: str = "") -> dict:
+    return {"media_key": "13_1", "kind": "video", "url": url,
+            "preview_image_url": "https://pbs.twimg.com/thumb.jpg",
+            "duration_ms": 1000, "reason": ""}
+
+
+def test_refetch_without_a_video_url_keeps_the_stored_url(root: Path) -> None:
+    """A copy fetched by an older build has no variants and so no url."""
+    store.put_record(root, make_record("1", media=[make_video("https://v/a.mp4")]))
+    store.put_record(root, make_record("1", media=[make_video("")]))
+    assert store.read_record(root, "1")["media"][0]["url"] == "https://v/a.mp4"
+
+
+def test_media_omitted_by_a_refetch_is_kept(root: Path) -> None:
+    store.put_record(root, make_record("1", media=[make_video("https://v/a.mp4")]))
+    store.put_record(root, make_record("1", media=[]))
+    assert store.read_record(root, "1")["media"][0]["url"] == "https://v/a.mp4"
+
+
+def test_merge_holds_a_thumbnail_only_video_record_at_inferred(root: Path) -> None:
+    store.put_record(root, make_record("1", media=[make_video("")]))
+    store.put_record(root, make_record("1", media=[make_video("")]))
+    stored = store.read_record(root, "1")
+    assert stored["resolve_status"] == "inferred"
+    assert stored["media"][0]["reason"]
+
+
+def test_rederive_marks_a_stored_thumbnail_only_video_record_inferred(tmp_path: Path) -> None:
+    """Records written by an older build read verified while holding only a
+    thumbnail; nothing else ever touches them again."""
+    store.ensure_store(tmp_path)
+    store.write_json_atomic(store.record_path(tmp_path, "1"), make_record(
+        "1", media=[{"media_key": "13_1", "kind": "video", "url": ""}],
+        resolve_status="verified"))
+    assert store.rederive_statuses(tmp_path) == 1
+    assert store.read_record(tmp_path, "1")["resolve_status"] == "inferred"
+
+
+def test_rederive_leaves_a_complete_record_verified(tmp_path: Path) -> None:
+    link = make_link(status="verified", text="body")
+    store.save_records(tmp_path, [make_record("1", links=[link],
+                                              resolve_status="verified")])
+    assert store.rederive_statuses(tmp_path) == 0
+    assert store.read_record(tmp_path, "1")["resolve_status"] == "verified"

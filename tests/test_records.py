@@ -237,3 +237,93 @@ def test_quoted_article_body_is_carried_into_referenced_text() -> None:
 ])
 def test_is_bare_link(text: str, expected: bool) -> None:
     assert records.is_bare_link(text) is expected
+
+
+###############################################################################
+# Video -- a playable url, not a thumbnail
+###############################################################################
+
+VIDEO_TWEET = {"id": "21", "attachments": {"media_keys": ["13_1"]}}
+THUMBNAIL = "https://pbs.twimg.com/amplify_video_thumb/1/img/a.jpg"
+
+
+def video_includes(**overrides) -> dict:
+    item = {"media_key": "13_1", "type": "video",
+            "preview_image_url": THUMBNAIL, "duration_ms": 83550}
+    item.update(overrides)
+    return {"media": [item]}
+
+
+VARIANTS = [
+    {"content_type": "application/x-mpegURL",
+     "url": "https://video.twimg.com/amplify_video/1/pl/a.m3u8"},
+    {"bit_rate": 632000, "content_type": "video/mp4",
+     "url": "https://video.twimg.com/amplify_video/1/vid/320x568/a.mp4"},
+    {"bit_rate": 2176000, "content_type": "video/mp4",
+     "url": "https://video.twimg.com/amplify_video/1/vid/1280x720/a.mp4"},
+]
+
+
+def test_video_url_is_the_highest_bitrate_mp4_variant() -> None:
+    built = records.build_page([VIDEO_TWEET], video_includes(variants=VARIANTS),
+                               RETRIEVED_AT)
+    assert built[0]["media"][0]["url"] == (
+        "https://video.twimg.com/amplify_video/1/vid/1280x720/a.mp4")
+
+
+def test_video_keeps_its_thumbnail_alongside_the_playable_url() -> None:
+    built = records.build_page([VIDEO_TWEET], video_includes(variants=VARIANTS),
+                               RETRIEVED_AT)
+    assert built[0]["media"][0]["preview_image_url"] == THUMBNAIL
+
+
+def test_video_with_only_a_playlist_variant_stores_the_playlist() -> None:
+    built = records.build_page([VIDEO_TWEET],
+                               video_includes(variants=VARIANTS[:1]), RETRIEVED_AT)
+    assert built[0]["media"][0]["url"].endswith(".m3u8")
+
+
+def test_video_with_a_playable_url_carries_no_reason() -> None:
+    built = records.build_page([VIDEO_TWEET], video_includes(variants=VARIANTS),
+                               RETRIEVED_AT)
+    assert built[0]["media"][0]["reason"] == ""
+
+
+def test_video_without_variants_says_why_it_has_no_url() -> None:
+    built = records.build_page([VIDEO_TWEET], video_includes(), RETRIEVED_AT)
+    media = built[0]["media"][0]
+    assert media["url"] == ""
+    assert "no playable url" in media["reason"]
+
+
+def test_photo_url_needs_no_variants(built: list) -> None:
+    assert built[2]["media"][0]["reason"] == ""
+
+
+###############################################################################
+# Record status -- gaps outside the links
+###############################################################################
+
+THUMBNAIL_ONLY = {"media_key": "13_1", "kind": "video", "url": "",
+                  "preview_image_url": THUMBNAIL}
+
+
+def test_thumbnail_only_video_holds_a_linkless_record_at_inferred() -> None:
+    record = {"links": [], "media": [THUMBNAIL_ONLY]}
+    assert records.rollup_status(record) == "inferred"
+
+
+def test_video_with_a_playable_url_leaves_the_record_verified() -> None:
+    record = {"links": [], "media": [{**THUMBNAIL_ONLY, "url": "https://v/a.mp4"}]}
+    assert records.rollup_status(record) == "verified"
+
+
+def test_pending_links_stay_pending_whatever_the_gaps() -> None:
+    record = {"links": [{"status": "pending"}], "media": [THUMBNAIL_ONLY]}
+    assert records.rollup_status(record) == "pending"
+
+
+def test_derive_status_puts_the_reason_on_the_media_entry() -> None:
+    derived = records.derive_status({"links": [], "media": [THUMBNAIL_ONLY]})
+    assert "no playable url" in derived["media"][0]["reason"]
+    assert derived["resolve_status"] == "inferred"

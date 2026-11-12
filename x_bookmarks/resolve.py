@@ -18,6 +18,7 @@ from .records import (
     BookmarkRecord,
     LinkRecord,
     classify_link,
+    derive_status,
     is_bare_link,
     is_x_article,
     record_status,
@@ -450,7 +451,9 @@ def resolve_record(
     """
     links = record.get("links") or []
     if not links:
-        return {**record, "resolve_status": "verified"}  # type: ignore[return-value]
+        # Nothing to resolve, but a thumbnail-only video still keeps the
+        # record below verified.
+        return derive_status(record)  # type: ignore[return-value, arg-type]
 
     # An Article link on a bookmark points at that bookmark's own long-form
     # body, which the fetch already carried in. Satisfy it from the record
@@ -473,11 +476,7 @@ def resolve_record(
             continue
         out.append(resolve_link(link, post_lookup=post_lookup))
 
-    return {  # type: ignore[return-value]
-        **record,
-        "links": out,
-        "resolve_status": record_status(out),
-    }
+    return derive_status({**record, "links": out})  # type: ignore[return-value]
 
 
 def resolve_records(

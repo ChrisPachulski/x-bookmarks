@@ -7,6 +7,7 @@ or silently misses new ones.
 """
 
 import json
+import types
 from pathlib import Path
 
 import pytest
@@ -250,3 +251,25 @@ def test_post_lookup_returns_the_full_text_of_a_long_post() -> None:
                     "includes": {"users": [{"id": "1", "username": "u"}]}}
 
     assert fetch.fetch_posts(Client(), ["1"])["1"]["text"] == "cut off at the end, and more"
+
+
+###############################################################################
+# Fields that cost nothing on the bookmark
+###############################################################################
+
+
+def captured_bookmark_kwargs(monkeypatch) -> dict:
+    seen: dict = {}
+
+    def get_bookmarks(**kwargs):
+        seen.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(fetch, "build_client",
+                        lambda token: types.SimpleNamespace(get_bookmarks=get_bookmarks))
+    fetch.fetch_bookmarks("token", known_ids=None)
+    return seen
+
+
+def test_bookmark_fetch_asks_for_video_variants(monkeypatch) -> None:
+    assert "variants" in captured_bookmark_kwargs(monkeypatch)["media_fields"]

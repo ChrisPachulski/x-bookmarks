@@ -488,3 +488,14 @@ def test_failing_callback_does_not_abort_the_batch(monkeypatch) -> None:
         [{"id": "1", "links": []}, {"id": "2", "links": []}],
         on_resolved=bad_callback)
     assert len(out) == 2
+
+
+###############################################################################
+# Honest status -- gaps outside the links
+###############################################################################
+
+
+def test_record_with_no_links_but_a_thumbnail_only_video_is_inferred() -> None:
+    record = {"id": "1", "links": [], "media": [
+        {"media_key": "13_1", "kind": "video", "url": "", "preview_image_url": "t"}]}
+    assert resolve.resolve_record(record)["resolve_status"] == "inferred"

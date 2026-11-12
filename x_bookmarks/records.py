@@ -42,10 +42,11 @@ class AuthorRecord(TypedDict):
 
 class MediaRecord(TypedDict):
     media_key: str
-    kind: str  # photo | video | animated_gif
-    url: str
+    kind: str    # photo | video | animated_gif
+    url: str     # the file for a photo; the best playable variant for video
     preview_image_url: str
     duration_ms: int | None
+    reason: str  # why a video or GIF has no playable url, else empty
 
 
 class ArticleRecord(TypedDict):
@@ -143,6 +144,32 @@ def is_bare_link(text: str) -> bool:
     return bool(re.fullmatch(r"https?://\S+", (text or "").strip()))
 
 
+def playable_url(item: dict[str, Any]) -> str:
+    """Best playable URL for a video or GIF, else empty string.
+
+    The API gives video no `url`; the file is in `variants`, one entry per
+    rendition. The highest-bitrate mp4 is the most faithful single file.
+    Another kind of variant (a streaming playlist) is used only when there
+    is no mp4 at all -- it still plays, which beats a thumbnail.
+    """
+    variants = [v for v in (item.get("variants") or []) if v.get("url")]
+    mp4 = [v for v in variants if v.get("content_type") == "video/mp4"]
+    if mp4:
+        return str(max(mp4, key=lambda v: v.get("bit_rate") or 0)["url"])
+    return str(variants[0]["url"]) if variants else ""
+
+
+def media_gap(item: dict[str, Any]) -> str:
+    """Why a media entry is not captured, or empty string when it is.
+
+    Only video and GIFs can be uncaptured: a photo's url is the file itself.
+    """
+    if item.get("kind") not in ("video", "animated_gif") or item.get("url"):
+        return ""
+    return (f"{item.get('kind')} {item.get('media_key')} has no playable url; "
+            "only its thumbnail was stored")
+
+
 def post_text(tweet: dict[str, Any]) -> str:
     """The whole post. `text` is cut at 280 characters for long posts; the
     full thing is under `note_tweet`, which is absent for short ones."""
@@ -232,6 +259,39 @@ def record_status(links: list[dict[str, Any]]) -> str:
     return "unresolved"
 
 
+def capture_gaps(record: dict[str, Any]) -> list[str]:
+    """Reasons the record's own content is incomplete, outside its links.
+
+    A video stored as a thumbnail is partial however well the links
+    resolved.
+    """
+    gaps = [media_gap(item) for item in (record.get("media") or [])]
+    return [gap for gap in gaps if gap]
+
+
+def rollup_status(record: dict[str, Any]) -> str:
+    """Record-level status: the link rollup, held below verified by any gap
+    in the record's own content. Partial success is inferred, never verified."""
+    status = record_status(record.get("links") or [])
+    if status == "verified" and capture_gaps(record):
+        return "inferred"
+    return status
+
+
+def derive_status(record: dict[str, Any]) -> dict[str, Any]:
+    """The record with media reasons and resolve_status recomputed.
+
+    Run wherever a record's status is settled, so a stored record never
+    reads verified while holding a gap, and every gap carries its reason on
+    the part that has it -- the same way links carry theirs.
+    """
+    media = [{**item, "reason": media_gap(item)}
+             for item in (record.get("media") or [])]
+    derived = {**record, "media": media}
+    derived["resolve_status"] = rollup_status(derived)
+    return derived
+
+
 ###############################################################################
 # Normalization -- one API page into self-contained records
 ###############################################################################
@@ -302,13 +362,16 @@ def build_media(tweet: dict[str, Any], media: dict[str, dict[str, Any]]) -> list
         item = media.get(key)
         if not item:
             continue
-        out.append(MediaRecord(
+        entry = MediaRecord(
             media_key=str(key),
             kind=str(item.get("type") or ""),
-            url=str(item.get("url") or ""),
+            url=str(item.get("url") or "") or playable_url(item),
             preview_image_url=str(item.get("preview_image_url") or ""),
             duration_ms=item.get("duration_ms"),
-        ))
+            reason="",
+        )
+        entry["reason"] = media_gap(entry)  # type: ignore[arg-type]
+        out.append(entry)
     return out
 
 
