@@ -152,10 +152,14 @@ def merge_record(existing: BookmarkRecord, incoming: BookmarkRecord) -> Bookmark
     links = []
     for link in incoming_links:
         prior = resolved_by_key.get(link_identity(link))
-        # Prior verified content only stands in when the incoming copy would
-        # downgrade it; an incoming link that itself carries verified text is
-        # a deliberate re-resolution and wins.
-        if prior and not (link.get("status") == "verified" and link.get("text")):
+        # Prior verified content stands in when the incoming copy would
+        # downgrade it. An incoming link that itself carries verified text is
+        # a deliberate re-resolution and wins -- unless it is shorter: a page
+        # that now extracts to less has lost content, and taking it would
+        # truncate the only durable copy.
+        reresolved = link.get("status") == "verified" and link.get("text")
+        if prior and (not reresolved
+                      or len(link["text"]) < len(prior["text"])):
             links.append(prior)
         elif not link.get("text") and text_by_key.get(link_identity(link)):
             links.append({**link, "text": text_by_key[link_identity(link)]})

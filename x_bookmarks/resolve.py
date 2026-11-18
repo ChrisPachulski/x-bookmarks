@@ -466,9 +466,15 @@ def resolve_record(
     # rather than sending it down the lookup path, which cannot resolve it.
     article = record.get("article") or {}
 
+    # A page snapshot is one content state of a living page, stored under an
+    # id built from that state's hash. Its text is the page as it was; a
+    # re-resolve would put today's page under the old state's id.
+    snapshot = bool((record.get("extra") or {}).get("content_sha1"))
+    keep_settled = skip_resolved or snapshot
+
     out: list[LinkRecord] = []
     for link in links:
-        if skip_resolved and link.get("status") == "verified" and link.get("text"):
+        if keep_settled and link.get("status") == "verified" and link.get("text"):
             out.append(link)
             continue
         if is_x_article(link.get("expanded_url") or "") and article.get("text"):

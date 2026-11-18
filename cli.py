@@ -54,7 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
     resolve_parser = subparsers.add_parser(
         "resolve", help="resolve links for records already stored")
     resolve_parser.add_argument("--all", action="store_true",
-                                help="re-resolve links already marked verified")
+                                help="re-resolve links already marked verified; "
+                                     "stored text is kept when the re-fetch "
+                                     "is shorter, and page snapshots are "
+                                     "never re-fetched")
     resolve_parser.add_argument("--limit", type=int, default=None,
                                 help="resolve at most N records this run")
     resolve_parser.add_argument(

@@ -288,6 +288,18 @@ def test_a_deliberate_reresolution_replaces_verified_content(root: Path) -> None
     assert store.read_record(root, "1")["links"][0]["text"] == "refreshed body"
 
 
+def test_a_shorter_reresolution_does_not_replace_longer_verified_content(root: Path) -> None:
+    old = make_link("https://example.com/a", status="verified",
+                    text="the full body as first retrieved")
+    store.put_record(root, make_record("1", links=[old]))
+
+    shrunk = make_link("https://example.com/a", status="verified", text="the body")
+    store.put_record(root, make_record("1", links=[shrunk]))
+
+    stored = store.read_record(root, "1")["links"][0]
+    assert stored["text"] == "the full body as first retrieved"
+
+
 ###############################################################################
 # Repair -- bare-link X-post links
 ###############################################################################

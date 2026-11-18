@@ -528,3 +528,14 @@ def test_record_with_verified_links_and_an_incomplete_thread_is_inferred() -> No
                                       "reason": "posts above 3 were not returned",
                                       "posts": []}}
     assert resolve.resolve_record(record)["resolve_status"] == "inferred"
+
+
+def test_resolve_all_does_not_refetch_a_page_snapshot(monkeypatch) -> None:
+    def explode(link, post_lookup=None):
+        raise AssertionError("a page snapshot was re-resolved")
+    monkeypatch.setattr(resolve, "resolve_link", explode)
+    record = {"id": "feed-1", "source": "feed:changelog", "media": [],
+              "extra": {"tier": 1, "content_sha1": "abc"},
+              "links": [make_link(status="verified", text="the page that day")]}
+    resolved = resolve.resolve_record(record, skip_resolved=False)
+    assert resolved["links"][0]["text"] == "the page that day"

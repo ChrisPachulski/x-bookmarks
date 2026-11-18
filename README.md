@@ -182,7 +182,9 @@ Useful flags:
 ```bash
 cli.py fetch --max-pages 1      # first 100 bookmarks, for a smoke test
 cli.py resolve --limit 20       # resolve a slice at a time
-cli.py resolve --all            # re-resolve links already verified
+cli.py resolve --all            # re-resolve links already verified; a
+                                # shorter re-fetch never replaces stored
+                                # text, and page snapshots are left alone
 cli.py resolve --repair         # one-time: reset X-post links stored by the
                                 # old scraping path, re-resolve via the API,
                                 # relabel stored notices to AI agents, and
