@@ -210,6 +210,33 @@ def test_long_post_text_comes_from_note_tweet() -> None:
     assert built[0]["text"] == "first 280 characters, cut off at the end, then the rest"
 
 
+LONG_POST_WITH_LINKS = {
+    "id": "10",
+    "text": "a list of tools https://t.co/short1",
+    "entities": {"urls": [
+        {"url": "https://t.co/short1", "expanded_url": "https://example.com/one",
+         "display_url": "example.com/one"}]},
+    "note_tweet": {
+        "text": "a list of tools https://t.co/note1 and https://t.co/note2",
+        "entities": {"urls": [
+            {"url": "https://t.co/note1", "expanded_url": "https://example.com/one",
+             "display_url": "example.com/one"},
+            {"url": "https://t.co/note2", "expanded_url": "https://example.com/two",
+             "display_url": "example.com/two"}]}},
+}
+
+
+def test_long_post_keeps_links_past_the_first_280_characters() -> None:
+    built = records.build_page([LONG_POST_WITH_LINKS], None, RETRIEVED_AT)
+    assert [link["expanded_url"] for link in built[0]["links"]] == [
+        "https://example.com/one", "https://example.com/two"]
+
+
+def test_long_post_link_in_both_entity_sets_keeps_its_stored_short_url() -> None:
+    built = records.build_page([LONG_POST_WITH_LINKS], None, RETRIEVED_AT)
+    assert built[0]["links"][0]["short_url"] == "https://t.co/short1"
+
+
 def test_quoted_long_post_text_comes_from_note_tweet() -> None:
     tweet = {"id": "9", "referenced_tweets": [{"type": "quoted", "id": "7"}]}
     built = records.build_page([tweet], {"tweets": [LONG_POST]}, RETRIEVED_AT)

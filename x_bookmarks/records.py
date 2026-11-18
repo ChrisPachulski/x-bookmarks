@@ -397,7 +397,15 @@ def build_links(tweet: dict[str, Any]) -> list[LinkRecord]:
     Every tweet carrying media also carries a t.co link back to itself; those
     are noise for a content pipeline and would each cost a wasted fetch.
     """
-    urls = ((tweet.get("entities") or {}).get("urls")) or []
+    # `entities` covers only the first 280 characters of a long post; links
+    # further down are under `note_tweet.entities`. The short set goes first:
+    # a link in both keeps the short url already stored, which is the merge
+    # key, so a re-fetch does not store it a second time.
+    note = tweet.get("note_tweet") or {}
+    urls = [
+        *(((tweet.get("entities") or {}).get("urls")) or []),
+        *(((note.get("entities") or {}).get("urls")) or []),
+    ]
     links: list[LinkRecord] = []
     seen: set[str] = set()
     for entry in urls:

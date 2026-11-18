@@ -283,7 +283,9 @@ Each record is one `BookmarkRecord`: `id`, `text`, `created_at`, `lang`,
 - `text` on the record, and on every `referenced[]` entry, is the whole post.
   The API truncates `text` at 280 characters and puts the full post under
   `note_tweet`; the fetch asks for both and stores the long one
-  (`records.py`, `post_text`).
+  (`records.py`, `post_text`). `links[]` follows the same split: the API
+  lists links in the first 280 characters under `entities` and the rest
+  under `note_tweet.entities`, and both are stored (`build_links`).
 - `media[]` -- for a photo, `url` is the image. For video and GIFs it is the
   highest-bitrate mp4 from the API's `variants`, with `preview_image_url` the
   thumbnail. The file itself is not downloaded. A video with no playable url
