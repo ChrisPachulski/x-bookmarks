@@ -51,17 +51,7 @@ the db between machines over SSH (decided 2026-11-17, replacing the
 2026-08-02 committed-db rule once the db outgrew GitHub's 100 MB limit). The
 repo is still private and must stay private: old history holds the db.
 
-## Not the youtube-transcripts skill
-
-Video transcripts come from `youtube-transcript-api`, not the
-`youtube-transcripts` skill. That skill is an interactive NotebookLM /
-playwright workflow returning a synthesized overview, and its NotebookLM auth
-is a main-session gate agents cannot pass. This pipeline needs batch-safe raw
-text. Do not "consolidate" these.
-
 ## Code conventions
-
-Inherits the parent project's Python rules:
 
 - No `main()` functions, no `if __name__` guards. Functions at the top,
   called sequentially below.
