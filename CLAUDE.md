@@ -45,9 +45,11 @@ Bookmarks need OAuth 2.0 user context (`bookmark.read`, `tweet.read`,
 rejected by the endpoint -- do not "fix" a 401 by trying one.
 
 Tokens live at `~/.config/x-bookmarks/token.json`, mode 0600. Never commit a
-token or a client secret. Retrieved content IS committed, but only as the
-derived `bookmarks.db` (decided 2026-08-02; the repo is private and must stay
-private). The JSON store itself stays untracked.
+token or a client secret. Retrieved content is never committed: the JSON
+store and the derived `bookmarks.db` stay untracked, and `pull-db.sh` moves
+the db between machines over SSH (decided 2026-11-17, replacing the
+2026-08-02 committed-db rule once the db outgrew GitHub's 100 MB limit). The
+repo is still private and must stay private: old history holds the db.
 
 ## Not the youtube-transcripts skill
 

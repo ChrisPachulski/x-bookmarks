@@ -26,12 +26,12 @@ only job is to make the content exist locally.
 
 ```
 fetch ────────────> resolve ────────────> export
-bookmark pages      links become text     committed SQLite copy
+bookmark pages      links become text     portable SQLite copy
       └─────────── store/  (JSON, append-only) ───────────┘
 ```
 
 Three stages, one command: `fetch` pulls bookmark pages from the API,
-`resolve` follows each link into stored text, `export` rewrites the committed
+`resolve` follows each link into stored text, `export` rewrites the portable
 `bookmarks.db`. `run` does all three.
 
 ## Features
@@ -50,9 +50,10 @@ Three stages, one command: `fetch` pulls bookmark pages from the API,
 - **Interruption-safe** -- content is written as each item completes, page by
   page and record by record. A crash or Ctrl-C keeps everything retrieved so
   far.
-- **Travels with the repo** -- the store is exported to a committed
-  `bookmarks.db`, so other machines get the full content by `git pull`
-  instead of re-fetching against the sliding window.
+- **Travels between machines** -- the store is exported to `bookmarks.db`,
+  and other machines pull that file over SSH with `pull-db.sh` instead of
+  re-fetching against the sliding window. It is not in git: it outgrew
+  GitHub's 100 MB file limit.
 - **Raw text, never summaries** -- a consumer can always summarize, but can
   never un-summarize.
 
@@ -231,13 +232,28 @@ recoverable here. A data archive export from X is the only route to those.
 store/
   bookmarks/<id>.json   one self-contained record per bookmark
   manifest.jsonl        append-only index, one line per bookmark
-bookmarks.db            committed SQLite copy, rebuilt by `run` and `export`
+bookmarks.db            SQLite copy (untracked), rebuilt by `run` and `export`
 ```
 
 `bookmarks.db` is a derived artifact: two tables (`bookmarks`, `links`) for
 querying, with each full record preserved in a JSON column. It exists so other
-machines get the content via `git pull` instead of re-fetching against the
-API's sliding window. Regenerate it; never hand-edit it.
+machines get the content without re-fetching against the API's sliding window.
+Regenerate it; never hand-edit it.
+
+### Moving it between machines
+
+`bookmarks.db` is not in git. Pull it from the machine that fetches:
+
+```bash
+./pull-db.sh user@host:x-bookmarks/bookmarks.db
+# or set X_BOOKMARKS_PEER to that source and run ./pull-db.sh
+```
+
+The peer's file lands in `.incoming/peer.db`. On a machine with a store and
+`.venv`, it is merged through `cli.py import` (append-only, no status
+downgrade) and `bookmarks.db` is re-exported. On a machine with no store,
+`bookmarks.db` is replaced only if the pulled copy holds every bookmark id the
+local one has; otherwise the script stops and leaves it alone.
 
 ### Record shape
 

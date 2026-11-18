@@ -23,10 +23,13 @@ VERIFICATION.md
 token.json
 *.token
 
-# The JSON store stays untracked; bookmarks.db is the committed, compact
-# derived copy (repo is PRIVATE -- re-check `git remote -v` before ever
-# making it public, the db holds full retrieved content).
+# Retrieved content never goes through git. The JSON store and the derived
+# bookmarks.db stay on each machine; pull-db.sh moves the db between machines
+# over SSH (decided 2026-11-17: the db outgrew GitHub's 100 MB file limit).
 store/
+bookmarks.db
+bookmarks.db.tmp
+.incoming/
 output/
 *.jsonl
 !tests/fixtures/*.jsonl
